@@ -6,6 +6,7 @@ const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
 const cfg = require('./config');
 const i18n = require('./i18n');
+const { createPermissions } = require('./permissions');
 
 // One Z per computer: a second launch focuses the running one.
 if (!app.requestSingleInstanceLock()) {
@@ -21,7 +22,8 @@ const OFFLINE_URL = pathToFileURL(OFFLINE_FILE).href;
 let win = null;
 let offline = false;
 let retryTimer = null;
-let prefs = { lang: null };
+let prefs = { lang: null, perms: {} };
+const RESET_ARG = '--reset-permissions';
 
 // ---------- small preferences file (only the language the person chose in Z) ----------
 
@@ -32,6 +34,7 @@ function loadPrefs() {
   try {
     const p = JSON.parse(fs.readFileSync(prefsPath(), 'utf8'));
     if (p && typeof p.lang === 'string') prefs.lang = p.lang;
+    if (p && p.perms && typeof p.perms === 'object') prefs.perms = p.perms;
   } catch {
     /* first run */
   }
@@ -66,13 +69,70 @@ function userAgent() {
 
 // ---------- security for everything that loads ----------
 
+function askPermission(origin, kinds) {
+  const s = t();
+  const names = kinds.map((k) => s['perm' + k[0].toUpperCase() + k.slice(1)]);
+  const what = names.join(s.permJoin);
+  return dialog
+    .showMessageBox(win && !win.isDestroyed() ? win : undefined, {
+      type: 'question',
+      title: 'Z',
+      message: s.permAsk.replace('{what}', what),
+      detail: `${new URL(origin).host}\n\n${s.permDetail}`,
+      buttons: [s.permAllow, s.permDeny],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    })
+    .then(({ response }) => response === 0);
+}
+
+const permissions = createPermissions({
+  store: {
+    get: (origin) => prefs.perms[origin],
+    set: (origin, decisions) => {
+      prefs.perms[origin] = decisions;
+      savePrefs();
+    },
+    clear: () => {
+      prefs.perms = {};
+      savePrefs();
+    },
+  },
+  ask: askPermission,
+});
+
+function resetPermissions() {
+  const s = t();
+  dialog
+    .showMessageBox(win && !win.isDestroyed() ? win : undefined, {
+      type: 'question',
+      title: s.resetTitle,
+      message: s.resetTitle,
+      detail: s.resetBody,
+      buttons: [s.resetConfirm, s.cancel],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    })
+    .then(({ response }) => {
+      if (response !== 0) return;
+      permissions.reset();
+      // Reload so any camera or microphone already in use is released.
+      if (win && !win.isDestroyed() && !offline) win.webContents.reload();
+    });
+}
+
 function hardenSession(ses) {
   ses.setPermissionRequestHandler((wc, permission, callback, details) => {
-    const origin = details.requestingUrl || wc.getURL();
-    callback(cfg.isAppUrl(origin) && cfg.ALLOWED_PERMISSIONS.has(permission));
+    const url = details.requestingUrl || wc.getURL();
+    permissions
+      .request(url, permission, details)
+      .then(callback)
+      .catch(() => callback(false));
   });
-  ses.setPermissionCheckHandler((wc, permission, requestingOrigin) => {
-    return cfg.isAppUrl(requestingOrigin) && cfg.ALLOWED_PERMISSIONS.has(permission);
+  ses.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
+    return permissions.check(requestingOrigin, permission, details);
   });
   // No downloads of programs into the wrapper's folder: files go to the normal Downloads folder with a save dialog.
   ses.on('will-download', (event, item) => {
@@ -102,7 +162,7 @@ function explainGoogle() {
 }
 
 function guardContents(wc) {
-  // Navigation inside the window: only Z and its sign-in service.
+  // Navigation inside the window: only Z.
   const onNavigate = (event, url) => {
     if (url.split('?')[0] === OFFLINE_URL) return;
     if (cfg.isInWindowUrl(url)) return;
@@ -113,9 +173,12 @@ function guardContents(wc) {
   wc.on('will-navigate', onNavigate);
   wc.on('will-redirect', onNavigate);
 
-  // New windows: Z's own pages and blank print windows stay in Z, everything else opens in the browser.
+  // New windows: Z's own pages stay in Z, everything else opens in the browser.
+  // Blank windows are refused: Electron cannot tell whether Z or a third-party frame inside Z opened one
+  // (the referrer is empty for both), and a blank window can be filled with a fake sign-in form.
   wc.setWindowOpenHandler(({ url }) => {
-    if (url === 'about:blank' || url === '' || cfg.isAppUrl(url)) {
+    const blank = url === 'about:blank' || url === '';
+    if (cfg.isAppUrl(url)) {
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
@@ -125,6 +188,7 @@ function guardContents(wc) {
         },
       };
     }
+    if (blank) return { action: 'deny' };
     if (cfg.isGoogleSignIn(url)) explainGoogle();
     else openOutside(url);
     return { action: 'deny' };
@@ -201,6 +265,7 @@ function rememberZLanguage() {
         prefs.lang = code;
         savePrefs();
         buildMenu();
+        buildIconMenu();
       }
     })
     .catch(() => {});
@@ -278,6 +343,8 @@ function buildMenu() {
       submenu: [
         { role: 'about', label: s.menuAbout },
         { type: 'separator' },
+        { label: s.resetTitle, click: resetPermissions },
+        { type: 'separator' },
         { role: 'hide', label: s.menuHide },
         { role: 'hideOthers' },
         { role: 'unhide' },
@@ -312,10 +379,30 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+// Right-click on the Z icon: "Reset permissions" (Windows taskbar, Mac Dock; Linux uses the .desktop action).
+function buildIconMenu() {
+  const s = t();
+  if (process.platform === 'win32') {
+    app.setUserTasks([
+      {
+        program: process.execPath,
+        arguments: RESET_ARG,
+        iconPath: process.execPath,
+        iconIndex: 0,
+        title: s.resetTitle,
+        description: s.resetBody,
+      },
+    ]);
+  } else if (isMac && app.dock) {
+    app.dock.setMenu(Menu.buildFromTemplate([{ label: s.resetTitle, click: resetPermissions }]));
+  }
+}
+
 // ---------- app life ----------
 
-app.on('second-instance', () => {
+app.on('second-instance', (event, argv) => {
   if (!win) return;
+  if (argv.includes(RESET_ARG)) resetPermissions();
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
@@ -329,7 +416,9 @@ app.whenReady().then(() => {
   loadPrefs();
   hardenSession(session.defaultSession);
   buildMenu();
+  buildIconMenu();
   createWindow();
+  if (process.argv.includes(RESET_ARG)) resetPermissions();
 
   app.on('activate', () => {
     if (!win) createWindow();

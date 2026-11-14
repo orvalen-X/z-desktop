@@ -5,22 +5,12 @@
 
 const START_URL = 'https://orvalen.me/';
 
-// Z itself, subdomains included. The marketing site is not here on purpose: the window shows Z.
+// Z itself, exact hosts only (no subdomains). The marketing site is not here on purpose: the window shows Z.
 const APP_HOSTS = ['orvalen.me'];
 
 // Google blocks sign-in inside embedded browsers such as this one.
 // Until the browser sign-in layer lands, these get a short explanation instead.
 const GOOGLE_SIGNIN_HOSTS = ['accounts.google.com'];
-
-// What Z may ask for, and only from APP_HOSTS. Anything else is refused.
-const ALLOWED_PERMISSIONS = new Set([
-  'media', // camera and microphone for calls
-  'notifications',
-  'fullscreen',
-  'geolocation',
-  'clipboard-sanitized-write',
-  'pointerLock',
-]);
 
 function hostMatches(host, list) {
   const h = String(host || '').toLowerCase();
@@ -37,13 +27,12 @@ function parse(url) {
 
 function isAppUrl(url) {
   const u = parse(url);
-  return !!u && u.protocol === 'https:' && hostMatches(u.hostname, APP_HOSTS);
+  return !!u && u.protocol === 'https:' && u.port === '' && APP_HOSTS.includes(u.hostname.toLowerCase());
 }
 
+// Today the window shows exactly the Z hosts. Kept separate so later layers can widen one without the other.
 function isInWindowUrl(url) {
-  const u = parse(url);
-  if (!u || u.protocol !== 'https:') return false;
-  return hostMatches(u.hostname, APP_HOSTS);
+  return isAppUrl(url);
 }
 
 function isGoogleSignIn(url) {
@@ -58,7 +47,6 @@ function isExternalSafe(url) {
 
 module.exports = {
   START_URL,
-  ALLOWED_PERMISSIONS,
   isAppUrl,
   isInWindowUrl,
   isGoogleSignIn,

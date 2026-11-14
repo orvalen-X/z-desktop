@@ -95,10 +95,29 @@
       "synopsis": "Z by Orvalen for desktop",
       "maintainer": "Orvalen <noreply@orvalen-official.com>",
       "executableName": "z-desktop",
-      "syncDesktopName": true
+      "syncDesktopName": true,
+      "desktop": {
+        "entry": {
+          "Actions": "ResetPermissions;"
+        },
+        "desktopActions": {
+          "ResetPermissions": {
+            "Name": "Reset permissions",
+            "Exec": "z-desktop --reset-permissions"
+          }
+        }
+      }
     },
     "deb": {
       "artifactName": "z-desktop_${version}_${arch}.${ext}"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "enableCookieEncryption": true
     }
   },
   "engines": {

@@ -39,6 +39,7 @@ The app is not digitally signed yet, so the first launch shows a warning. Signin
 - **F11** switches between full screen and a window (on macOS also **Ctrl+Cmd+F**).
 - **Alt+Tab** / **Cmd+Tab** move between apps as usual.
 - Links to other websites open in your normal browser.
+- Each installer has a SHA256 checksum next to it, so you can check the download.
 - Sign in with email and password. Google sign-in arrives in the next version.
 
 ## What the app does, and what it doesn't
@@ -47,7 +48,7 @@ This app is a small, focused window around [orvalen.me](https://orvalen.me). It 
 
 - Only Z loads inside the window. Everything else opens in your browser.
 - The page inside the window has no access to your files or your system.
-- Camera, microphone, location and notifications are offered to Z only, never to other sites.
+- Camera, microphone and location: the first time Z asks, the app asks you. Your answer is remembered, and you can undo it any time: right-click the Z icon → **Reset permissions** (on macOS also in the Z menu). Other sites never get these.
 - No tracking and no data collection by the app. It stores one setting on your computer: the language you chose in Z.
 
 ## Build from source

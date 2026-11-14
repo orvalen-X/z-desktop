@@ -15,7 +15,7 @@ const test = (name, fn) => {
   }
 };
 
-for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js']) {
+for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js']) {
   test(`syntax ${f}`, () => execFileSync(process.execPath, ['--check', f]));
 }
 
@@ -24,6 +24,10 @@ test('Z loads in the window', () => {
   assert.ok(cfg.isInWindowUrl('https://orvalen.me/'));
   assert.ok(cfg.isInWindowUrl('https://orvalen.me/m/chat?x=1'));
   assert.ok(cfg.isAppUrl('https://orvalen.me/pay'));
+});
+test('exact host only: no subdomains, no other ports', () => {
+  for (const u of ['https://peek.orvalen.me/', 'https://x.orvalen.me/', 'https://orvalen.me:8443/'])
+    assert.ok(!cfg.isInWindowUrl(u) && !cfg.isAppUrl(u), u);
 });
 test('other sites go to the browser', () => {
   for (const u of [
@@ -46,6 +50,52 @@ test('only web and mail links open outside', () => {
   for (const u of ['file:///C:/Windows/system32/cmd.exe', 'smb://host/share', 'ms-msdt:/id', 'javascript:1'])
     assert.ok(!cfg.isExternalSafe(u), u);
 });
+
+const { createPermissions } = require('../src/permissions.js');
+const permTest = async () => {
+  const saved = {};
+  let asked = 0, answer = true;
+  const p = createPermissions({
+    store: { get: (o) => saved[o], set: (o, d) => (saved[o] = d), clear: () => Object.keys(saved).forEach((k) => delete saved[k]) },
+    ask: async () => (asked++, answer),
+  });
+  const Z = 'https://orvalen.me/call';
+  // other sites never get anything, and are never asked about
+  assert.equal(await p.request('https://evil.example/', 'media', { mediaTypes: ['video'] }), false);
+  assert.equal(await p.request('https://sub.orvalen.me/', 'geolocation', {}), false);
+  assert.equal(asked, 0);
+  // first camera request asks once; the answer is remembered
+  assert.equal(p.check(Z, 'media', { mediaType: 'video' }), false, 'nothing granted before asking');
+  assert.equal(await p.request(Z, 'media', { mediaTypes: ['video'] }), true);
+  assert.equal(await p.request(Z, 'media', { mediaTypes: ['video'] }), true);
+  assert.equal(asked, 1);
+  assert.equal(p.check(Z, 'media', { mediaType: 'video' }), true);
+  // microphone is its own question; a "no" is remembered too
+  answer = false;
+  assert.equal(await p.request(Z, 'media', { mediaTypes: ['audio'] }), false);
+  assert.equal(await p.request(Z, 'media', { mediaTypes: ['audio'] }), false);
+  assert.equal(asked, 2);
+  // two requests at once show one dialog
+  answer = true;
+  const [a, b] = await Promise.all([p.request(Z, 'geolocation', {}), p.request(Z, 'geolocation', {})]);
+  assert.ok(a && b);
+  assert.equal(asked, 3);
+  // notifications need no dialog; unknown permissions are refused
+  assert.equal(await p.request(Z, 'notifications', {}), true);
+  assert.equal(await p.request(Z, 'hid', {}), false);
+  // reset forgets everything
+  p.reset();
+  assert.equal(p.check(Z, 'media', { mediaType: 'video' }), false);
+  await p.request(Z, 'media', { mediaTypes: ['video'] });
+  assert.equal(asked, 4);
+};
+try {
+  await permTest();
+  console.log('ok   permissions: asked once per kind and origin, remembered, reset');
+} catch (e) {
+  failed++;
+  console.log('FAIL permissions', '\n     ', e.message);
+}
 
 const i18n = require('../src/i18n.js');
 test('five languages, same keys', () => {
