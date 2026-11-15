@@ -6,8 +6,8 @@
 // when Orvalen publishes it (the build makes a draft first), so a draft or a test build never reaches anyone.
 //
 // How it is installed:
-//   Windows and Linux AppImage: downloaded in the background, checked against the SHA-512 in the release,
-//     installed when Z restarts. The person chooses "Restart now" or "Later" (then it installs on quit).
+//   Windows and Linux AppImage: downloaded in the background and checked against the SHA-512 in the release.
+//     It installs only when the person clicks "Restart now"; with "Later", Z asks again on the next start.
 //   macOS and Linux DEB: a short notice with a Download button. macOS only installs signed updates, and a DEB
 //     is installed by the system's package tool. Both become automatic in the signing layer.
 
@@ -79,7 +79,8 @@ function createUpdates({ app, version, platform, env, fetchLatest, openExternal,
     if (updater) return updater;
     const { autoUpdater } = require('electron-updater');
     autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    // Installs only when the person clicks "Restart now". With "Later", the next start asks again.
+    autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.allowPrerelease = false;
     autoUpdater.allowDowngrade = false;
     autoUpdater.logger = null;

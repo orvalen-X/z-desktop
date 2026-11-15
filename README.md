@@ -43,7 +43,7 @@ If Windows says the app was blocked and offers no **Run anyway**, Smart App Cont
 - **Alt+Tab** / **Cmd+Tab** move between apps as usual.
 - Links to other websites open in your normal browser.
 - Each installer has a SHA256 checksum next to it, so you can check the download.
-- **Updates:** on Windows and with the AppImage, new versions download in the background and install when Z restarts; you choose "Restart now" or "Later". On macOS and with the DEB, Z tells you when a new version is out and opens the download. Updates come only from this repository's Releases page. Right-click the Z icon (or the Z menu on macOS) → **Check for updates** to check right away.
+- **Updates:** on Windows and with the AppImage, new versions download in the background, and Z asks whether to restart now to install them. Nothing installs until you click "Restart now"; with "Later", Z asks again the next time it starts. On macOS and with the DEB, Z tells you when a new version is out and opens the download. Updates come only from this repository's Releases page. Right-click the Z icon (or the Z menu on macOS) → **Check for updates** to check right away.
 - Sign in with email and password. Google sign-in arrives in the next version.
 
 ## What the app does, and what it doesn't
@@ -57,7 +57,7 @@ This app is a small, focused window around [orvalen.me](https://orvalen.me). It 
 
 ## Making a release
 
-Raise `version` in `package.json`, merge to `main`, then run **Actions → Release → Run workflow**. It builds every installer and puts them in a draft release. Check the draft, then click **Publish release**: from that moment the download links and the apps' update check see the new version.
+Only Orvalen can make a release: `main` and the `v*` tags are protected, and the release run waits for Orvalen's approval. Raise `version` in `package.json`, merge to `main`, then run **Actions → Release → Run workflow** and approve it. It builds every installer and puts them in a draft release. Check the draft, then click **Publish release**: from that moment the download links and the apps' update check see the new version.
 
 ## Build from source
 

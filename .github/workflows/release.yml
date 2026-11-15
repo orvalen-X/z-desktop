@@ -2,6 +2,8 @@
 # Orvalen starts this by hand from main (Actions -> Release -> Run workflow), checks the draft,
 # and clicks "Publish release". Only then do the download page and the apps' update check see it.
 #
+# Before the draft is made, Orvalen approves the run (environment "release").
+#
 # No secrets and no signing. The build jobs can only read the repository. Only the last job may write,
 # and all it does is attach the files that were just built to a new draft release.
 name: Release
@@ -70,6 +72,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The "release" environment has Orvalen as required reviewer: the draft is made only after Orvalen approves.
+    environment: release
     permissions:
       contents: write
     steps:
