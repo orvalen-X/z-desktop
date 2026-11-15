@@ -1,0 +1,126 @@
+{
+  "name": "z-desktop",
+  "productName": "Z",
+  "version": "0.1.0",
+  "description": "Z by Orvalen for desktop: the whole screen becomes Z.",
+  "homepage": "https://orvalen-official.com",
+  "author": "Orvalen",
+  "private": true,
+  "main": "src/main.js",
+  "desktopName": "z-desktop.desktop",
+  "scripts": {
+    "start": "electron .",
+    "check": "node scripts/check.mjs",
+    "dist": "electron-builder --publish never",
+    "dist:linux": "electron-builder --linux --publish never",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:mac": "electron-builder --mac --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.1.0",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "me.orvalen.z",
+    "productName": "Z",
+    "copyright": "Copyright © Orvalen",
+    "artifactName": "Z-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "Z-Setup-${version}-${arch}.${ext}",
+      "shortcutName": "Z",
+      "uninstallDisplayName": "Z"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "category": "public.app-category.social-networking",
+      "icon": "build/icon.png",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "extendInfo": {
+        "NSCameraUsageDescription": "Z uses the camera for video calls.",
+        "NSMicrophoneUsageDescription": "Z uses the microphone for calls and voice messages.",
+        "NSLocationWhenInUseUsageDescription": "Z uses your location when you share it or use the map."
+      }
+    },
+    "dmg": {
+      "artifactName": "Z-${version}-mac-universal.${ext}"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Network",
+      "icon": "build/icon.png",
+      "synopsis": "Z by Orvalen for desktop",
+      "maintainer": "Orvalen <noreply@orvalen-official.com>",
+      "executableName": "z-desktop",
+      "syncDesktopName": true,
+      "desktop": {
+        "entry": {
+          "Actions": "ResetPermissions;"
+        },
+        "desktopActions": {
+          "ResetPermissions": {
+            "Name": "Reset permissions",
+            "Exec": "z-desktop --reset-permissions"
+          }
+        }
+      }
+    },
+    "deb": {
+      "artifactName": "z-desktop_${version}_${arch}.${ext}"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "enableCookieEncryption": true
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
