@@ -4,7 +4,7 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const name = process.argv[2] || process.platform;
-const files = readdirSync('dist').filter((f) => /\.(exe|dmg|AppImage|deb)$/.test(f)).sort();
+const files = readdirSync('dist').filter((f) => /\.(exe|7z|dmg|AppImage|deb)$/.test(f)).sort();
 if (!files.length) {
   console.error('no installers in dist/');
   process.exit(1);

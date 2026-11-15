@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const cfg = require('./config');
 const i18n = require('./i18n');
 const { createPermissions } = require('./permissions');
+const { createUpdates, RELEASES_API } = require('./updates');
 
 // One Z per computer: a second launch focuses the running one.
 if (!app.requestSingleInstanceLock()) {
@@ -22,10 +23,11 @@ const OFFLINE_URL = pathToFileURL(OFFLINE_FILE).href;
 let win = null;
 let offline = false;
 let retryTimer = null;
-let prefs = { lang: null, perms: {} };
+let prefs = { lang: null, perms: {}, updSkipped: null };
 const RESET_ARG = '--reset-permissions';
+const UPDATE_ARG = '--check-updates';
 
-// ---------- small preferences file (only the language the person chose in Z) ----------
+// ---------- small preferences file (language, permission answers, a skipped update notice) ----------
 
 function prefsPath() {
   return path.join(app.getPath('userData'), 'z-desktop.json');
@@ -35,6 +37,7 @@ function loadPrefs() {
     const p = JSON.parse(fs.readFileSync(prefsPath(), 'utf8'));
     if (p && typeof p.lang === 'string') prefs.lang = p.lang;
     if (p && p.perms && typeof p.perms === 'object') prefs.perms = p.perms;
+    if (p && typeof p.updSkipped === 'string') prefs.updSkipped = p.updSkipped;
   } catch {
     /* first run */
   }
@@ -215,6 +218,46 @@ function secureWebPreferences(withPreload) {
   };
 }
 
+// ---------- updates of the app itself ----------
+
+function ask(type, message, detail, buttons) {
+  return dialog
+    .showMessageBox(win && !win.isDestroyed() ? win : undefined, {
+      type,
+      title: 'Z',
+      message,
+      detail,
+      buttons,
+      defaultId: 0,
+      cancelId: buttons.length - 1,
+      noLink: true,
+    })
+    .then(({ response }) => response);
+}
+
+async function fetchLatestRelease() {
+  const res = await net.fetch(RELEASES_API, {
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': `ZDesktop/${app.getVersion()}` },
+  });
+  if (res.status === 404) return null; // nothing published yet
+  if (!res.ok) throw new Error(`releases ${res.status}`);
+  return res.json();
+}
+
+const updates = createUpdates({
+  app,
+  version: app.getVersion(),
+  platform: process.platform,
+  env: process.env,
+  fetchLatest: fetchLatestRelease,
+  openExternal: (url) => shell.openExternal(url),
+  ask,
+  prefs,
+  savePrefs,
+  strings: t,
+  log: (...a) => console.warn('[z-desktop]', ...a),
+});
+
 // ---------- offline screen ----------
 
 function showOffline() {
@@ -342,6 +385,7 @@ function buildMenu() {
       label: 'Z',
       submenu: [
         { role: 'about', label: s.menuAbout },
+        { label: s.updCheck, click: () => updates.checkNow() },
         { type: 'separator' },
         { label: s.resetTitle, click: resetPermissions },
         { type: 'separator' },
@@ -379,7 +423,8 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-// Right-click on the Z icon: "Reset permissions" (Windows taskbar, Mac Dock; Linux uses the .desktop action).
+// Right-click on the Z icon: "Reset permissions" and "Check for updates" (Windows taskbar, Mac Dock and menu;
+// Linux uses the .desktop actions).
 function buildIconMenu() {
   const s = t();
   if (process.platform === 'win32') {
@@ -392,9 +437,22 @@ function buildIconMenu() {
         title: s.resetTitle,
         description: s.resetBody,
       },
+      {
+        program: process.execPath,
+        arguments: UPDATE_ARG,
+        iconPath: process.execPath,
+        iconIndex: 0,
+        title: s.updCheck,
+        description: s.updCheck,
+      },
     ]);
   } else if (isMac && app.dock) {
-    app.dock.setMenu(Menu.buildFromTemplate([{ label: s.resetTitle, click: resetPermissions }]));
+    app.dock.setMenu(
+      Menu.buildFromTemplate([
+        { label: s.resetTitle, click: resetPermissions },
+        { label: s.updCheck, click: () => updates.checkNow() },
+      ]),
+    );
   }
 }
 
@@ -403,6 +461,7 @@ function buildIconMenu() {
 app.on('second-instance', (event, argv) => {
   if (!win) return;
   if (argv.includes(RESET_ARG)) resetPermissions();
+  if (argv.includes(UPDATE_ARG)) updates.checkNow();
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
@@ -419,6 +478,8 @@ app.whenReady().then(() => {
   buildIconMenu();
   createWindow();
   if (process.argv.includes(RESET_ARG)) resetPermissions();
+  if (process.argv.includes(UPDATE_ARG)) updates.checkNow();
+  updates.start();
 
   app.on('activate', () => {
     if (!win) createWindow();

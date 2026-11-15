@@ -22,9 +22,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: Windows, os: windows-latest, target: --win }
-          - { name: macOS, os: macos-latest, target: --mac }
-          - { name: Linux, os: ubuntu-latest, target: --linux }
+          - { name: Windows, os: windows-latest, cmd: npm run dist:win }
+          - { name: macOS, os: macos-latest, cmd: npx electron-builder --mac --publish never }
+          - { name: Linux, os: ubuntu-latest, cmd: npx electron-builder --linux --publish never }
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -39,7 +39,7 @@ jobs:
       - run: npm run check
 
       - name: Build installers (unsigned)
-        run: npx electron-builder ${{ matrix.target }} --publish never
+        run: ${{ matrix.cmd }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
@@ -53,6 +53,7 @@ jobs:
           if-no-files-found: error
           path: |
             dist/*.exe
+            dist/*.nsis.7z
             dist/*.dmg
             dist/*.AppImage
             dist/*.deb

@@ -1,0 +1,112 @@
+# Makes a new version of Z for desktop, as a DRAFT release. Nobody can see or download a draft.
+# Orvalen starts this by hand from main (Actions -> Release -> Run workflow), checks the draft,
+# and clicks "Publish release". Only then do the download page and the apps' update check see it.
+#
+# No secrets and no signing. The build jobs can only read the repository. Only the last job may write,
+# and all it does is attach the files that were just built to a new draft release.
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { name: Windows, os: windows-latest, cmd: npm run dist:win }
+          - { name: macOS, os: macos-latest, cmd: npx electron-builder --mac --publish never }
+          - { name: Linux, os: ubuntu-latest, cmd: npx electron-builder --linux --publish never }
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run check
+
+      - name: Build installers (unsigned)
+        run: ${{ matrix.cmd }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Checksums
+        run: node scripts/checksums.mjs ${{ matrix.name }}
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: release-${{ matrix.name }}
+          retention-days: 3
+          if-no-files-found: error
+          path: |
+            dist/*.exe
+            dist/*.nsis.7z
+            dist/*.blockmap
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.deb
+            dist/latest*.yml
+            dist/SHA256SUMS-*.txt
+
+  draft:
+    name: Draft release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: out
+          merge-multiple: true
+
+      - name: Create the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          tag="v${version}"
+          # Each version is made once. To make a new one, raise "version" in package.json first.
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "::error::A release named $tag already exists. Raise the version in package.json first."
+            exit 1
+          fi
+          cat out/SHA256SUMS-*.txt > out/SHA256SUMS.txt
+          rm out/SHA256SUMS-*.txt
+          ls -l out
+          {
+            echo "Z for desktop ${version}"
+            echo
+            echo "Unsigned build: the first launch shows a warning. See the README for how to open it."
+            echo
+            echo '```'
+            cat out/SHA256SUMS.txt
+            echo '```'
+          } > notes.md
+          gh release create "$tag" out/* --repo "$REPO" --draft --target "$SHA" --title "Z ${version}" --notes-file notes.md
