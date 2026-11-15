@@ -1,7 +1,7 @@
 {
   "name": "z-desktop",
   "productName": "Z",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Z by Orvalen for desktop: the whole screen becomes Z.",
   "homepage": "https://orvalen-official.com",
   "author": "Orvalen",
@@ -13,7 +13,7 @@
     "check": "node scripts/check.mjs",
     "dist": "electron-builder --publish never",
     "dist:linux": "electron-builder --linux --publish never",
-    "dist:win": "electron-builder --win --publish never",
+    "dist:win": "electron-builder --win nsis-web --x64 --arm64 --publish never && electron-builder --win nsis --x64 --publish never -c.directories.output=dist-full && node scripts/collect-windows.mjs",
     "dist:mac": "electron-builder --mac --publish never"
   },
   "devDependencies": {
@@ -37,7 +37,7 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
+          "target": "nsis-web",
           "arch": [
             "x64",
             "arm64"
@@ -49,7 +49,7 @@
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "artifactName": "Z-Setup-${version}-${arch}.${ext}",
+      "artifactName": "Z-Setup-${version}.${ext}",
       "shortcutName": "Z",
       "uninstallDisplayName": "Z"
     },
@@ -98,12 +98,16 @@
       "syncDesktopName": true,
       "desktop": {
         "entry": {
-          "Actions": "ResetPermissions;"
+          "Actions": "ResetPermissions;CheckUpdates;"
         },
         "desktopActions": {
           "ResetPermissions": {
             "Name": "Reset permissions",
             "Exec": "z-desktop --reset-permissions"
+          },
+          "CheckUpdates": {
+            "Name": "Check for updates",
+            "Exec": "z-desktop --check-updates"
           }
         }
       }
@@ -118,9 +122,23 @@
       "enableEmbeddedAsarIntegrityValidation": true,
       "onlyLoadAppFromAsar": true,
       "enableCookieEncryption": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "orvalen-X",
+        "repo": "z-desktop",
+        "releaseType": "draft"
+      }
+    ],
+    "nsisWeb": {
+      "artifactName": "Z-Web-Setup-${version}.${ext}"
     }
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
   }
 }

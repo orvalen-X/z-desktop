@@ -1,4 +1,4 @@
-// Quick checks that run without Electron: syntax, the address rules, and the five languages.
+// Quick checks that run without Electron: syntax, the address rules, permissions, updates and the five languages.
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
@@ -15,7 +15,7 @@ const test = (name, fn) => {
   }
 };
 
-for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js']) {
+for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js']) {
   test(`syntax ${f}`, () => execFileSync(process.execPath, ['--check', f]));
 }
 
@@ -98,6 +98,67 @@ try {
 }
 
 const i18n = require('../src/i18n.js');
+const i18nEn = i18n.STRINGS.en;
+
+const upd = require('../src/updates.js');
+test('updates: version order', () => {
+  assert.ok(upd.isNewer('v0.2.1', '0.2.0'));
+  assert.ok(upd.isNewer('1.0.0', '0.9.9'));
+  assert.ok(upd.isNewer('0.10.0', '0.9.0'));
+  assert.ok(!upd.isNewer('v0.2.0', '0.2.0'));
+  assert.ok(!upd.isNewer('0.1.9', '0.2.0'));
+  assert.ok(!upd.isNewer('0.3.0-beta', '0.2.0'), 'pre-release ignored');
+  assert.ok(!upd.isNewer('garbage', '0.2.0'));
+});
+test('updates: install on Windows and AppImage, notice on Mac and DEB, nothing in development', () => {
+  assert.equal(upd.updateMode({ platform: 'win32', isPackaged: true }), 'install');
+  assert.equal(upd.updateMode({ platform: 'linux', isPackaged: true, appImage: true }), 'install');
+  assert.equal(upd.updateMode({ platform: 'linux', isPackaged: true, appImage: false }), 'notify');
+  assert.equal(upd.updateMode({ platform: 'darwin', isPackaged: true }), 'notify');
+  assert.equal(upd.updateMode({ platform: 'win32', isPackaged: false }), 'off');
+});
+test('updates: download link stays on the Releases page', () => {
+  const ok = 'https://github.com/orvalen-X/z-desktop/releases/tag/v0.2.1';
+  assert.equal(upd.safeReleaseUrl(ok), ok);
+  for (const bad of ['https://evil.com/z.dmg', 'https://github.com/orvalen-X/z-desktop-evil/releases/', 'file:///x', null])
+    assert.equal(upd.safeReleaseUrl(bad), upd.RELEASES_PAGE + 'latest', String(bad));
+});
+
+// The notice flow (Mac, DEB), with a fake release.
+async function noticeFlow() {
+  const prefs = {};
+  const shown = [];
+  const opened = [];
+  let release = { tag_name: 'v0.2.1', html_url: 'https://github.com/orvalen-X/z-desktop/releases/tag/v0.2.1' };
+  let answer = 1;
+  const u = upd.createUpdates({
+    app: { isPackaged: true },
+    version: '0.2.0',
+    platform: 'darwin',
+    env: {},
+    fetchLatest: async () => release,
+    openExternal: (url) => opened.push(url),
+    ask: async (type, title) => (shown.push(title), answer),
+    prefs,
+    savePrefs: () => {},
+    strings: () => i18nEn,
+    log: () => {},
+  });
+  assert.equal(u.mode, 'notify');
+  await u.checkNow(); // "Later"
+  assert.equal(shown.length, 1);
+  assert.equal(prefs.updSkipped, '0.2.1');
+  answer = 0;
+  await u.checkNow(); // a manual check still shows it; "Download"
+  assert.equal(opened[0], release.html_url);
+  release = { tag_name: 'v0.2.0' };
+  await u.checkNow(); // up to date
+  assert.equal(shown.at(-1), i18nEn.updLatestTitle);
+  release = { tag_name: 'v0.3.0', draft: true };
+  shown.length = 0;
+  await u.checkNow();
+  assert.equal(shown[0], i18nEn.updLatestTitle, 'drafts are never offered');
+}
 test('five languages, same keys', () => {
   assert.deepEqual(i18n.SUPPORTED.sort(), ['ar', 'en', 'es', 'he', 'ru']);
   const keys = Object.keys(i18n.STRINGS.en).sort();
@@ -115,6 +176,14 @@ test('language choice', () => {
   assert.equal(i18n.pickLang(null, ['fr-FR', 'es-ES']), 'es');
   assert.equal(i18n.pickLang(null, ['ja-JP']), 'en');
 });
+
+try {
+  await noticeFlow();
+  console.log('ok   updates: notice shown once, Download opens the release, drafts ignored');
+} catch (e) {
+  failed++;
+  console.log('FAIL updates notice', '\n     ', e.message);
+}
 
 if (failed) {
   console.log(`\n${failed} failed`);
