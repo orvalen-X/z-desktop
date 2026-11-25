@@ -31,6 +31,19 @@ function kindsFor(permission, details) {
   return [];
 }
 
+// The site that answers for a request (O 25.11). Z's own pages answer for themselves. An app inside Z runs in a frame
+// from its own address (OnlyCalls: a workers.dev site); Chromium lets that frame ask only for what Z's iframe
+// `allow` delegates to it, and then, as in a browser, the answer belongs to the top-level site, Z. So a frame counts
+// only for camera, microphone and location, only while the window's top page is Z, and is saved under Z's origin.
+// Anything else from a frame (notifications, clipboard, ...) stays refused.
+function scopeOf(url, topUrl, permission) {
+  if (cfg.isAppUrl(url)) return { origin: originOf(url), framed: false };
+  if (topUrl && cfg.isAppUrl(topUrl) && (permission === 'geolocation' || permission === 'media')) {
+    return { origin: originOf(topUrl), framed: true };
+  }
+  return null;
+}
+
 function createPermissions({ store, ask }) {
   // store: { get(origin) -> {kind: bool}, set(origin, decisions), clear() }
   // ask: (origin, kinds) -> Promise<boolean>   (shows the system dialog)
@@ -43,11 +56,12 @@ function createPermissions({ store, ask }) {
     return undefined;
   }
 
-  // Asynchronous request from a page.
-  function request(url, permission, details) {
-    const origin = originOf(url);
-    if (!cfg.isAppUrl(url)) return Promise.resolve(false);
-    if (QUIET.has(permission)) return Promise.resolve(true);
+  // Asynchronous request from a page. topUrl: the window's top page (for a request from a frame inside Z).
+  function request(url, permission, details, topUrl) {
+    const scope = scopeOf(url, topUrl, permission);
+    if (!scope) return Promise.resolve(false);
+    const { origin } = scope;
+    if (QUIET.has(permission)) return Promise.resolve(!scope.framed);
     const kinds = kindsFor(permission, details);
     if (!kinds.length) return Promise.resolve(false);
     const known = saved(origin, kinds);
@@ -68,15 +82,16 @@ function createPermissions({ store, ask }) {
   }
 
   // Synchronous check (navigator.permissions.query and similar): only what was already allowed.
-  function check(url, permission, details) {
-    if (!cfg.isAppUrl(url)) return false;
-    if (QUIET.has(permission)) return true;
+  function check(url, permission, details, topUrl) {
+    const scope = scopeOf(url, topUrl, permission);
+    if (!scope) return false;
+    if (QUIET.has(permission)) return !scope.framed;
     const kinds = kindsFor(permission, details);
     if (!kinds.length) return false;
-    return saved(originOf(url), kinds) === true;
+    return saved(scope.origin, kinds) === true;
   }
 
   return { request, check, reset: () => store.clear() };
 }
 
-module.exports = { createPermissions, kindsFor, SENSITIVE, QUIET };
+module.exports = { createPermissions, kindsFor, scopeOf, SENSITIVE, QUIET };

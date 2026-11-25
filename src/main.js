@@ -128,14 +128,17 @@ function resetPermissions() {
 
 function hardenSession(ses) {
   ses.setPermissionRequestHandler((wc, permission, callback, details) => {
-    const url = details.requestingUrl || wc.getURL();
+    const top = wc && !wc.isDestroyed() ? wc.getURL() : '';
+    const url = details.requestingUrl || top;
     permissions
-      .request(url, permission, details)
+      .request(url, permission, details, details.isMainFrame === false ? top : '')
       .then(callback)
       .catch(() => callback(false));
   });
   ses.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
-    return permissions.check(requestingOrigin, permission, details);
+    // a cross-origin frame inside Z: Electron names the page that embeds it (O 25.11)
+    const top = (details && details.embeddingOrigin) || (details && details.isMainFrame === false && wc && !wc.isDestroyed() ? wc.getURL() : '');
+    return permissions.check(requestingOrigin, permission, details, top);
   });
   // No downloads of programs into the wrapper's folder: files go to the normal Downloads folder with a save dialog.
   ses.on('will-download', (event, item) => {
