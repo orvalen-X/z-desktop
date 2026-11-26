@@ -155,15 +155,23 @@ func (a *app) finish() {
 	a.eval("zs.ready()")
 	exe := waitForInstalledZ(10 * time.Second)
 	if exe == "" {
+		// The screen just said Z opens by itself: say it didn't, and offer to try again, instead of closing.
 		a.logf("installed, but Z.exe was not found")
-	} else if err := launchZ(exe, on); err != nil {
+		a.eval("zs.fail('inst','Z.exe not found')")
+		return
+	}
+	if err := launchZ(exe, on); err != nil {
 		a.logf("could not open Z: %v", err)
-	} else if !waitForZWindow(exe, 60*time.Second) {
+		a.eval("zs.fail('inst'," + jsString(short(err.Error())) + ")")
+		return
+	}
+	if !waitForZWindow(exe, 60*time.Second) {
 		a.logf("Z started, but its window did not appear within 60s")
 	} else {
 		a.logf("Z is open")
 	}
-	time.Sleep(600 * time.Millisecond) // Z's window is drawn; let ours fade out over it
+	a.eval("zs.bye()")
+	time.Sleep(600 * time.Millisecond) // Z's window is drawn; ours fades out over it
 	a.close()
 }
 
