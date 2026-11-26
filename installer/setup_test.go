@@ -372,3 +372,25 @@ func TestRepairOfTheSameVersionNeedsARealStart(t *testing.T) {
 		t.Fatalf("got %v after %d starts", err, sys.ran.Load())
 	}
 }
+
+func TestNewerVersion(t *testing.T) {
+	cases := []struct {
+		have, tag string
+		want      bool
+	}{
+		{"0.3.2", "v0.3.3", true},
+		{"0.3.3", "v0.3.3", false},
+		{"0.3.10", "v0.3.9", false},
+		{"0.9.9", "v1.0.0", true},
+		{"1.0.0", "v0.9.9", false},
+		{"", "v0.3.3", false},
+		{"0.3", "v0.3.3", false},
+		{"0.3.2-beta", "v0.3.3", false},
+		{"0.3.2", "latest", false},
+	}
+	for _, c := range cases {
+		if got := newerVersion(c.have, c.tag); got != c.want {
+			t.Errorf("newerVersion(%q, %q) = %v, want %v", c.have, c.tag, got, c.want)
+		}
+	}
+}

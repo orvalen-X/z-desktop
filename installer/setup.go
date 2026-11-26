@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -98,6 +99,7 @@ type Flow struct {
 	Sys         System
 	Report      func(Progress)
 	Now         func() time.Time
+	OnTag       func(tag string) // the newest release's tag, once it is known (shown in the window's corner)
 }
 
 // Share of the bar each phase gets (sketch 2: download to 86%, check to 92%, install to 100%).
@@ -190,6 +192,36 @@ func (fl *Flow) get(ctx context.Context, name string, from int64) (*http.Respons
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", from))
 	}
 	return fl.Client.Do(req)
+}
+
+// newerVersion: tag (v1.2.3) is a newer release than the installed version (1.2.3). Anything unreadable is not newer.
+func newerVersion(installed, tag string) bool {
+	parse := func(v string) ([3]int, bool) {
+		var n [3]int
+		parts := strings.Split(strings.TrimPrefix(v, "v"), ".")
+		if len(parts) != 3 {
+			return n, false
+		}
+		for i, part := range parts {
+			x, err := strconv.Atoi(part)
+			if err != nil || x < 0 {
+				return n, false
+			}
+			n[i] = x
+		}
+		return n, true
+	}
+	a, ok1 := parse(installed)
+	b, ok2 := parse(tag)
+	if !ok1 || !ok2 {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return b[i] > a[i]
+		}
+	}
+	return false
 }
 
 // ResolveLatest asks the newest release's page where it points, without following it, and sets Base to that
@@ -471,6 +503,9 @@ func (fl *Flow) Run(ctx context.Context) error {
 	}
 	if err := fl.ResolveLatest(ctx); err != nil {
 		return err
+	}
+	if fl.OnTag != nil && fl.Tag != "" {
+		fl.OnTag(fl.Tag)
 	}
 	rel, err := fl.FindRelease(ctx)
 	if err != nil {

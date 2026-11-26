@@ -15,7 +15,7 @@ const test = (name, fn) => {
   }
 };
 
-for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js', 'src/autostart.js', 'src/displays.js', 'src/surfaces.js']) {
+for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js', 'src/autostart.js', 'src/displays.js', 'src/navGuard.js', 'src/surfaces.js']) {
   test(`syntax ${f}`, () => execFileSync(process.execPath, ['--check', f]));
 }
 
@@ -117,6 +117,20 @@ try {
 
 const i18n = require('../src/i18n.js');
 const i18nEn = i18n.STRINGS.en;
+
+test('message boxes: Hebrew and Arabic lines read right to left, others untouched', () => {
+  assert.equal(i18n.boxText('he', 'Z 0.3.3\nשורה'), '\u202BZ 0.3.3\u202C\n\u202Bשורה\u202C');
+  assert.ok(i18n.boxText('ar', 'x').startsWith('\u202B'));
+  for (const l of ['en', 'es', 'ru']) assert.equal(i18n.boxText(l, 'Z 0.3.3'), 'Z 0.3.3');
+  assert.equal(i18n.boxText('he', ''), '');
+  // A web address in a permission question stays whole and left to right inside the Hebrew line.
+  assert.equal(i18n.boxText('he', i18n.ltrRun('maps.example.com:8080')), '\u202B\u202Amaps.example.com:8080\u202C\u202C');
+  assert.ok(/ltrRun\(new URL\(origin\)\.host\)/.test(require('node:fs').readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')));
+  assert.equal(i18n.boxText('he', undefined), undefined);
+  const main = require('node:fs').readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const direct = main.match(/dialog\s*\.\s*showMessageBox\(/g) || [];
+  assert.equal(direct.length, 2, 'every message box goes through showBox');
+});
 
 const upd = require('../src/updates.js');
 test('updates: version order', () => {
@@ -458,6 +472,30 @@ test('main checks every Z request comes from Z itself', () => {
     assert.ok(src.includes("if (blank) return { action: 'deny' };"), 'every other blank window is refused');
   });
 }
+test('navigation: the top stays on Z, frames inside Z follow their own redirects', () => {
+  const { createNavigationGuard } = require('../src/navGuard.js');
+  const opened = [];
+  let google = 0;
+  const guard = createNavigationGuard({ cfg, offlineUrl: 'file:///z/offline.html', openOutside: (u) => opened.push(u), explainGoogle: () => google++ });
+  const ev = (isMainFrame) => ({ isMainFrame, stopped: false, preventDefault() { this.stopped = true; } });
+  const run = (url, main) => { const e = ev(main); guard(e, url); return e.stopped; };
+  // a site in a ZeuS frame redirects (example.com -> www.example.com): it stays in its frame
+  assert.equal(run('https://www.example.com/home', false), false);
+  assert.equal(run('https://accounts.google.com/x', false), false);
+  // the top of the window leaving Z is stopped and opens outside; Google gets the explanation
+  assert.equal(run('https://evil.example/', true), true);
+  assert.equal(run('https://accounts.google.com/o/oauth2/auth', true), true);
+  // no isMainFrame (unknown) counts as the top
+  assert.equal(run('https://evil.example/2', undefined), true);
+  // Z itself and the offline page stay
+  assert.equal(run(cfg.START_URL, true), false);
+  assert.equal(run('file:///z/offline.html?r=1', true), false);
+  assert.deepEqual(opened, ['https://evil.example/', 'https://evil.example/2']);
+  assert.equal(google, 1);
+  const main = readFileSyncSafe('src/main.js');
+  assert.ok(/wc\.on\('will-navigate', onNavigate\)/.test(main) && /wc\.on\('will-redirect', onNavigate\)/.test(main));
+  assert.ok(/createNavigationGuard\(/.test(main));
+});
 
 function readFileSyncSafe(f) {
   return require('node:fs').readFileSync(f, 'utf8');

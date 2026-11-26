@@ -97,6 +97,8 @@ button:focus-visible{outline:2px solid var(--or);outline-offset:2px}
 .chrome button{width:34px;height:28px;border:0;background:transparent;color:var(--ink3);border-radius:8px;font-size:14px;cursor:pointer}
 .chrome button:hover{background:var(--hair);color:var(--ink)}
 .mark{position:absolute;top:14px;inset-inline-start:18px;font-size:11px;letter-spacing:.16em;color:var(--ink3);font-family:var(--font)}
+/* the version about to run, opposite the mark in the same type (O 26.11); with an older Z installed, both */
+.ver{position:absolute;top:14px;inset-inline-end:86px;font-size:11px;letter-spacing:.16em;color:var(--ink3);font-family:var(--font);white-space:nowrap;unicode-bidi:isolate}
 .foot{position:absolute;bottom:12px;inset-inline:18px;display:flex;justify-content:space-between;align-items:center;gap:10px;z-index:5}
 .nums{font-size:12.5px;color:var(--ink);opacity:.8;font-variant-numeric:tabular-nums}
 .auto{display:flex;align-items:center;gap:9px;font-size:13.5px;cursor:pointer;margin-inline-end:auto;color:var(--ink)}
@@ -123,7 +125,7 @@ button:focus-visible{outline:2px solid var(--or);outline-offset:2px}
 .desk img{width:100%;height:100%;object-fit:cover;transform:scale(1.12);transition:transform 1.9s cubic-bezier(.2,.8,.2,1) .4s}
 .win.open{width:100%;border-radius:10px}
 .win.open .desk{opacity:1}.win.open .desk img{transform:none}
-.win.full :is(.gauge,.buoy,.foot,.mark){opacity:0}
+.win.full :is(.gauge,.buoy,.foot,.mark,.ver){opacity:0}
 
 @media (prefers-reduced-motion:reduce){.wave,.glow,.buoy .tile,.buoy.swap .tile,.buoy.swap .cap,.msg{animation:none}.win,.desk,.desk img,.wave,.gauge,.buoy{transition:none}}
 
@@ -142,6 +144,7 @@ body{padding:0;background:var(--w0)}
   <div class="zedge"></div>
   <div class="drag" id="drag"></div>
   <div class="mark">Z BY ORVALEN</div>
+  <div class="ver"><span id="ver" dir="ltr"></span></div>
   <div class="chrome"><button id="bMin" aria-label="Minimize">–</button><button id="bClose" aria-label="Close">✕</button></div>
   <div class="gauge" id="gauge" role="status" aria-live="polite"><span class="n" id="pct" dir="ltr"></span></div>
   <div class="m" id="mline" role="status" aria-live="polite"></div>
@@ -160,6 +163,7 @@ en:{dir:"ltr",name:"English",
  badE:"Stopped",badH:"This file didn't pass the check",badP:"Nothing was installed. Download Z Setup again from orvalen-official.com.",
  instE:"Not finished",instH:"The installation didn't finish",instP:"A security program may have stopped it. The file was checked and kept, so trying again is quick.",
  haveE:"Already installed",haveH:"Z is already here",haveP:"Open it, or repair the installation if something isn't working.",
+ updE:"Update available",updH:"A new version of Z is ready",updP:"Updating keeps your sign-in and settings.",update:"Update",
  frE:"First start",frH:"What Z apps may use",frP:"Every Z app asks before using any of these. Change them any time in Z Settings.",
  lnxE:"Linux",lnxH:"Add Z to your apps",lnxP:"Z appears in your apps menu with its icon, and updates itself.",
  cancel:"Cancel",retry:"Try again",close:"Close",open:"Open Z",repair:"Repair",later:"Later",done:"Continue to Z",add:"Add Z",notNow:"Not now",
@@ -177,6 +181,7 @@ he:{dir:"rtl",name:"עברית",
  badE:"נעצר",badH:"הקובץ לא עבר את הבדיקה",badP:"שום דבר לא הותקן. אפשר להוריד שוב את התקנת Z מ-orvalen-official.com.",
  instE:"לא הסתיים",instH:"ההתקנה לא הסתיימה",instP:"ייתכן שתוכנת אבטחה עצרה אותה. הקובץ נבדק ונשמר, ואפשר לנסות שוב.",
  haveE:"כבר מותקן",haveH:"Z כבר כאן",haveP:"אפשר לפתוח אותה, או לתקן את ההתקנה אם משהו לא עובד.",
+ updE:"עדכון זמין",updH:"גרסה חדשה של Z מוכנה",updP:"העדכון שומר על החיבור לחשבון ועל ההגדרות.",update:"לעדכן",
  frE:"פתיחה ראשונה",frH:"במה האפליקציות ב-Z יוכלו להשתמש",frP:"כל אפליקציה ב-Z שואלת לפני שימוש באחד מאלה. אפשר לשנות בכל רגע בהגדרות Z.",
  lnxE:"Linux",lnxH:"להוסיף את Z לאפליקציות",lnxP:"Z תופיע בתפריט האפליקציות עם האייקון שלה ותתעדכן לבד.",
  cancel:"ביטול",retry:"לנסות שוב",close:"סגירה",open:"לפתוח את Z",repair:"תיקון",later:"אחר כך",done:"להמשיך ל-Z",add:"להוסיף את Z",notNow:"לא עכשיו",
@@ -194,6 +199,7 @@ es:{dir:"ltr",name:"Español",
  badE:"Detenido",badH:"El archivo no pasó la comprobación",badP:"No se instaló nada. Descarga de nuevo el instalador desde orvalen-official.com.",
  instE:"Sin terminar",instH:"La instalación no terminó",instP:"Puede que un programa de seguridad la haya detenido. El archivo se comprobó y se guardó, así que reintentar es rápido.",
  haveE:"Ya instalado",haveH:"Z ya está aquí",haveP:"Ábrelo o repara la instalación si algo no funciona.",
+ updE:"Actualización disponible",updH:"Hay una nueva versión de Z",updP:"Al actualizar se conservan tu sesión y tus ajustes.",update:"Actualizar",
  frE:"Primer inicio",frH:"Lo que las apps de Z podrán usar",frP:"Cada app de Z pregunta antes de usar algo de esto. Cámbialo cuando quieras en Ajustes de Z.",
  lnxE:"Linux",lnxH:"Añadir Z a tus apps",lnxP:"Z aparece en el menú de apps con su icono y se actualiza solo.",
  cancel:"Cancelar",retry:"Reintentar",close:"Cerrar",open:"Abrir Z",repair:"Reparar",later:"Más tarde",done:"Continuar a Z",add:"Añadir Z",notNow:"Ahora no",
@@ -211,6 +217,7 @@ ar:{dir:"rtl",name:"العربية",
  badE:"توقّف",badH:"لم يجتز الملف التحقق",badP:"لم يُثبَّت أي شيء. نزّل مثبّت Z مجددًا من orvalen-official.com.",
  instE:"لم يكتمل",instH:"لم يكتمل التثبيت",instP:"ربما أوقفه برنامج حماية. تم التحقق من الملف وحفظه، لذا ستكون المحاولة مجددًا سريعة.",
  haveE:"مثبّتة مسبقًا",haveH:"Z موجودة هنا",haveP:"افتحها، أو أصلح التثبيت إذا كان هناك خلل.",
+ updE:"تحديث متاح",updH:"إصدار جديد من Z جاهز",updP:"التحديث يحتفظ بتسجيل دخولك وإعداداتك.",update:"حدّث",
  frE:"التشغيل الأول",frH:"ما يمكن لتطبيقات Z استخدامه",frP:"كل تطبيق في Z يسأل قبل استخدام أي من هذه. غيّرها متى شئت من إعدادات Z.",
  lnxE:"Linux",lnxH:"أضف Z إلى تطبيقاتك",lnxP:"تظهر Z في قائمة التطبيقات بأيقونتها وتُحدّث نفسها.",
  cancel:"إلغاء",retry:"حاول مجددًا",close:"إغلاق",open:"افتح Z",repair:"إصلاح",later:"لاحقًا",done:"تابع إلى Z",add:"أضف Z",notNow:"ليس الآن",
@@ -228,6 +235,7 @@ ru:{dir:"ltr",name:"Русский",
  badE:"Остановлено",badH:"Файл не прошёл проверку",badP:"Ничего не установлено. Скачайте установщик Z заново на orvalen-official.com.",
  instE:"Не завершено",instH:"Установка не завершилась",instP:"Возможно, её остановила защитная программа. Файл проверен и сохранён, повтор займёт немного времени.",
  haveE:"Уже установлено",haveH:"Z уже здесь",haveP:"Откройте её или восстановите установку, если что-то не работает.",
+ updE:"Доступно обновление",updH:"Новая версия Z готова",updP:"Обновление сохранит вход и настройки.",update:"Обновить",
  frE:"Первый запуск",frH:"Что смогут использовать приложения Z",frP:"Каждое приложение Z спрашивает перед использованием. Изменить можно в любой момент в настройках Z.",
  lnxE:"Linux",lnxH:"Добавить Z в приложения",lnxP:"Z появится в меню приложений со своим значком и будет обновляться сама.",
  cancel:"Отмена",retry:"Повторить",close:"Закрыть",open:"Открыть Z",repair:"Восстановить",later:"Позже",done:"Перейти в Z",add:"Добавить Z",notNow:"Не сейчас",
@@ -248,8 +256,9 @@ const M={
  ru:["Начинаем. Z уже в пути.","Загружаем Z для вас.","Треть пути позади. Продолжаем.","Больше половины!","Загрузка почти завершена.","Проверяем, что всё дошло целым и безопасным.","Устанавливаем файлы на ваш компьютер.","Готовим ваш рабочий стол.","Всё готово. Добро пожаловать в Z!"]};
 
 /* The real Z Setup (approved sketch 2, O 26.11). The Go side drives it:
-   zs.init({lang, installed}) once, then zs.progress({phase, p, done, total, secs}), zs.fail(kind, detail), zs.ready().
-   It calls back: zsStart, zsRetry, zsCancel, zsClose, zsMin, zsDrag, zsAutostart(on), zsOpen, zsRepair. */
+   zs.init({lang, installed, have}) once, then zs.version(tag, newer), zs.progress({phase, p, done, total, secs}),
+   zs.fail(kind, detail), zs.ready().
+   It calls back: zsStart, zsRetry, zsCancel, zsClose, zsMin, zsDrag, zsAutostart(on), zsOpen, zsRepair, zsCheck. */
 const S={lang:"en",ph:"wel",p:0,shown:0,done:0,total:0,secs:0,mi:-1,open:false};
 const $=id=>document.getElementById(id), win=$("win");
 const call=(name,...a)=>{try{const f=window[name];if(typeof f==="function")return f(...a)}catch(e){}};
@@ -268,14 +277,19 @@ function texts(){
  win.dataset.tone=k==="off"?"warn":(k==="bad"||k==="inst")?"bad":"";if(!win.dataset.tone)delete win.dataset.tone;
  $("cancel").textContent=L.cancel;$("autoTxt").textContent=A[S.lang];
  $("bMin").setAttribute("aria-label",L.later);$("bClose").setAttribute("aria-label",L.close);
- const m=["off","bad","inst","have"].includes(k);$("mD").hidden=!(k==="bad"||k==="inst")||!S.det;$("mD").textContent=S.det||"";$("msg").hidden=!m;$("cancel").hidden=m||k==="vf"||k==="in"||k==="rd";
- $("gauge").hidden=k==="have";$("autoL").hidden=m;$("mline").hidden=m||k==="have";S.mi=-1;
+ const m=["off","bad","inst","have","upd"].includes(k);$("mD").hidden=!(k==="bad"||k==="inst")||!S.det;$("mD").textContent=S.det||"";$("msg").hidden=!m;$("cancel").hidden=m||k==="vf"||k==="in"||k==="rd";
+ $("gauge").hidden=k==="have"||k==="upd";$("autoL").hidden=m;$("mline").hidden=m||k==="have"||k==="upd";S.mi=-1;
  if(m){$("mE").textContent=L[k+"E"];$("mH").textContent=L[k+"H"];$("mP").textContent=L[k+"P"];const a=$("mActs");a.textContent="";
   if(k==="off")a.append(btn(L.cancel,"ghost",()=>call("zsCancel")),btn(L.retry,"pri",()=>{S.ph="dl";texts();call("zsRetry")}));
   else if(k==="bad")a.append(btn(L.close,"pri",()=>call("zsClose")));
   else if(k==="inst")a.append(btn(L.close,"ghost",()=>call("zsClose")),btn(L.retry,"pri",()=>{S.ph="in";S.det="";texts();call("zsRetry")}));
+  else if(k==="upd")a.append(btn(L.open,"",()=>call("zsOpen")),btn(L.update,"pri",()=>{S.ph="wel";S.p=S.shown=0;texts();call("zsRepair")}));
   else a.append(btn(L.repair,"",()=>{S.ph="wel";S.p=S.shown=0;texts();call("zsRepair")}),btn(L.open,"pri",()=>call("zsOpen")));}
+ ver();
  numbers();}
+// The corner opposite the mark: the version about to run, "v0.3.2 → v0.3.3" when an older Z is installed.
+function ver(){const okv=v=>typeof v==="string"&&/^\d+\.\d+\.\d+$/.test(v);const have=okv(S.have)?S.have:"",next=okv(S.next)?S.next:"";
+ $("ver").textContent=next&&have&&S.newer?"v"+have+" → v"+next:next?"v"+next:have?"v"+have:"";}
 function numbers(){const L=T[S.lang],k=S.ph,p=S.shown;win.style.setProperty("--p",p.toFixed(4));
  let mi=0;for(let i=0;i<TH.length;i++)if(p>=TH[i]-1e-6)mi=i;if(k==="rd")mi=TH.length-1;else if(mi===TH.length-1)mi--;
  if(mi!==S.mi){const first=S.mi<0;S.mi=mi;const el=$("mline");el.textContent=M[S.lang][mi];if(!first){el.classList.remove("swap");void el.offsetWidth;el.classList.add("swap");}}
@@ -290,7 +304,10 @@ function tick(){const target=Math.max(S.shown,S.p);if(Math.abs(target-S.shown)>0
  requestAnimationFrame(tick);}
 window.zs={
  init(o){S.lang=T[o.lang]?o.lang:"en";$("autoStart").checked=!!o.autostart;
-  if(o.installed){S.ph="have";S.p=S.shown=1;texts();}else{S.ph="wel";texts();call("zsStart");}},
+  S.have=typeof o.have==="string"?o.have:"";
+  if(o.installed){S.ph="have";S.p=S.shown=1;texts();call("zsCheck");}else{S.ph="wel";texts();call("zsStart");}},
+ version(tag,newer){if(typeof tag!=="string")return;S.next=tag.replace(/^v/,"");if(newer===true)S.newer=true;
+  if(S.newer&&S.ph==="have"){S.ph="upd";texts();}else ver();},
  progress(o){const changed=o.phase!==S.ph;S.ph=o.phase;S.p=Math.max(S.p,o.p||0);S.done=o.done||S.done;S.total=o.total||S.total;S.secs=o.secs||0;if(changed)texts();else numbers();},
  fail(kind,detail){S.ph=["off","inst"].includes(kind)?kind:"bad";S.det=typeof detail==="string"?detail.slice(0,160):"";texts();},
  ready(){S.ph="rd";S.p=1;texts();setTimeout(()=>{S.shown=1;numbers();win.classList.add("full")},900);}
