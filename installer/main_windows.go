@@ -163,7 +163,8 @@ func (a *app) finish() {
 	} else {
 		a.logf("Z is open")
 	}
-	time.Sleep(600 * time.Millisecond) // Z's window is drawn; let ours fade out over it
+	a.eval("zs.bye()")
+	time.Sleep(600 * time.Millisecond) // Z's window is drawn; ours fades out over it
 	a.close()
 }
 
