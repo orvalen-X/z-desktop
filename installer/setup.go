@@ -67,10 +67,16 @@ func (f *Failure) Error() string { return f.Kind + ": " + f.Err.Error() }
 func offline(err error) error { return &Failure{Kind: "off", Err: err} }
 func bad(err error) error     { return &Failure{Kind: "bad", Err: err} }
 
+// notInstalled: the file passed the check but the installer did not finish (often a security program holding it).
+// The checked file is kept, so trying again does not download it again.
+func notInstalled(err error) error { return &Failure{Kind: "inst", Err: err} }
+
 // System is everything that touches the computer, so tests can replace it.
 type System interface {
 	// RunInstaller runs the full installer silently and waits for it.
 	RunInstaller(ctx context.Context, path string) error
+	// Installed tells whether this version of Z is now installed for this user.
+	Installed(version string) bool
 	// Hold keeps the file from being changed (by anyone, even the same user) from before its check until the
 	// installer has run. The returned func lets go of it.
 	Hold(path string) (func(), error)
@@ -81,15 +87,17 @@ const maxInstaller = 512 << 20
 
 // Flow holds one run of Z Setup.
 type Flow struct {
-	Client  *http.Client
-	Latest  string        // the newest release's page; Run reads its tag and sets Base from it
-	Base    string        // where the release's files are (set by Run from Latest, or by tests directly)
-	Tag     string        // the release tag Run resolved (e.g. "v0.3.0"); "" when Base was set directly
-	Stall   time.Duration // a download with no bytes for this long counts as a lost connection (0 = 60s)
-	WorkDir string        // where the download is kept between attempts
-	Sys     System
-	Report  func(Progress)
-	Now     func() time.Time
+	Client *http.Client
+	Latest string // the newest release's page; Run reads its tag and sets Base from it
+	Base   string // where the release's files are (set by Run from Latest, or by tests directly)
+	Tag    string // the release tag Run resolved (e.g. "v0.3.0"); "" when Base was set directly
+	Stall  time.Duration
+	// InstallWait is how long a failed installer start waits for Z to turn up anyway (0 = 20s).
+	InstallWait time.Duration // a download with no bytes for this long counts as a lost connection (0 = 60s)
+	WorkDir     string        // where the download is kept between attempts
+	Sys         System
+	Report      func(Progress)
+	Now         func() time.Time
 }
 
 // Share of the bar each phase gets (sketch 2: download to 86%, check to 92%, install to 100%).
@@ -394,17 +402,56 @@ func (fl *Flow) Verify(path string, rel Release) error {
 }
 
 // Install runs the full installer silently. The bar eases toward the end while it runs.
-func (fl *Flow) Install(ctx context.Context, path string) error {
+// Security programs (Avast, AVG and others) can stop the first start of an unsigned installer while they scan it,
+// and sometimes start it again themselves once it is cleared. So a failed start is not the end: Z Setup waits a
+// little, counts it as done if that version of Z turns up installed, and otherwise tries again.
+const installTries = 3
+
+func (fl *Flow) Install(ctx context.Context, path, version string) error {
 	if fl.Report != nil {
 		fl.Report(Progress{Phase: PhaseInstall, P: shareVerify})
 	}
-	if err := fl.Sys.RunInstaller(ctx, path); err != nil {
-		return bad(err)
+	wait := fl.InstallWait
+	if wait <= 0 {
+		wait = 20 * time.Second
+	}
+	var err error
+	for try := 1; try <= installTries; try++ {
+		if err = fl.Sys.RunInstaller(ctx, path); err == nil {
+			break
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if fl.waitInstalled(ctx, version, wait) {
+			err = nil
+			break
+		}
+	}
+	if err != nil {
+		return notInstalled(err)
 	}
 	if fl.Report != nil {
 		fl.Report(Progress{Phase: PhaseReady, P: 1})
 	}
 	return nil
+}
+
+func (fl *Flow) waitInstalled(ctx context.Context, version string, max time.Duration) bool {
+	deadline := time.Now().Add(max)
+	for {
+		if fl.Sys.Installed(version) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(max / 10):
+		}
+	}
 }
 
 // Run is the whole way from nothing to an installed Z.
@@ -436,7 +483,7 @@ func (fl *Flow) Run(ctx context.Context) error {
 		_ = os.Remove(path)
 		return err
 	}
-	err = fl.Install(ctx, path)
+	err = fl.Install(ctx, path, rel.Version)
 	release()
 	if err == nil {
 		_ = os.Remove(path) // done with it; Z updates itself from now on

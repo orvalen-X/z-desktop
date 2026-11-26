@@ -7,9 +7,11 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -117,7 +119,7 @@ func (a *app) start() {
 			Client:  NewClient(),
 			Latest:  releaseLatest,
 			WorkDir: filepath.Join(a.workDir, "dl"),
-			Sys:     &winSys{onTick: a.progress},
+			Sys:     &winSys{onTick: a.progress, log: a.logf},
 			Report:  a.progress,
 			Now:     time.Now,
 		}
@@ -185,6 +187,25 @@ func (a *app) close() {
 	a.quitting = true
 	a.mu.Unlock()
 	a.w.Dispatch(func() { a.w.Terminate() })
+}
+
+// logf keeps a short record in %TEMP%\ZSetup\setup.log, so a failure on someone's computer can be explained.
+func (a *app) logf(format string, args ...any) {
+	f, err := os.OpenFile(filepath.Join(a.workDir, "setup.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s %s\n", time.Now().Format(time.RFC3339), fmt.Sprintf(format, args...))
+}
+
+// short keeps the window's detail line to one readable line.
+func short(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 140 {
+		s = s[:140] + "…"
+	}
+	return s
 }
 
 func jsString(s string) string { b, _ := json.Marshal(s); return string(b) }

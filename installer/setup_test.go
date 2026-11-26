@@ -19,14 +19,21 @@ import (
 )
 
 type fakeSys struct {
-	ran  atomic.Int32
-	fail error
+	ran       atomic.Int32
+	fail      error
+	failTimes int32  // fail only the first n starts (0 = always when fail is set)
+	installed string // the version Installed reports
 }
 
 func (s *fakeSys) RunInstaller(ctx context.Context, path string) error {
-	s.ran.Add(1)
+	n := s.ran.Add(1)
+	if s.failTimes > 0 && n > s.failTimes {
+		return nil
+	}
 	return s.fail
 }
+
+func (s *fakeSys) Installed(version string) bool { return s.installed != "" && s.installed == version }
 
 func (s *fakeSys) Hold(path string) (func(), error) {
 	f, err := os.Open(path)
@@ -166,10 +173,37 @@ func TestWrongHashNeverRuns(t *testing.T) {
 func TestInstallerFailureIsReported(t *testing.T) {
 	payload := []byte("Z")
 	s, _ := server(t, payload, sum(payload), 0)
-	fl, _ := flow(t, s.URL, &fakeSys{fail: errors.New("exit 2")})
+	sys := &fakeSys{fail: errors.New("exit 2")}
+	fl, _ := flow(t, s.URL, sys)
+	fl.InstallWait = 50 * time.Millisecond
 	var f *Failure
-	if err := fl.Run(context.Background()); !errors.As(err, &f) || f.Kind != "bad" {
-		t.Fatalf("got %v", err)
+	if err := fl.Run(context.Background()); !errors.As(err, &f) || f.Kind != "inst" || sys.ran.Load() != installTries {
+		t.Fatalf("got %v after %d starts", err, sys.ran.Load())
+	}
+	if _, err := os.Stat(filepath.Join(fl.WorkDir, "Z-Setup-0.3.0.exe")); err != nil {
+		t.Fatal("the checked file must be kept for the next try")
+	}
+}
+
+func TestSecurityProgramHoldsTheFirstStart(t *testing.T) {
+	payload := []byte("Z")
+	s, _ := server(t, payload, sum(payload), 0)
+	sys := &fakeSys{fail: errors.New("blocked"), failTimes: 1}
+	fl, _ := flow(t, s.URL, sys)
+	fl.InstallWait = 50 * time.Millisecond
+	if err := fl.Run(context.Background()); err != nil || sys.ran.Load() != 2 {
+		t.Fatalf("got %v after %d starts", err, sys.ran.Load())
+	}
+}
+
+func TestInstalledByTheSecurityProgramCounts(t *testing.T) {
+	payload := []byte("Z")
+	s, _ := server(t, payload, sum(payload), 0)
+	sys := &fakeSys{fail: errors.New("blocked"), installed: "0.3.0"}
+	fl, _ := flow(t, s.URL, sys)
+	fl.InstallWait = 50 * time.Millisecond
+	if err := fl.Run(context.Background()); err != nil || sys.ran.Load() != 1 {
+		t.Fatalf("got %v after %d starts", err, sys.ran.Load())
 	}
 }
 

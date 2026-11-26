@@ -83,6 +83,7 @@ var installStarted atomic.Bool
 
 type winSys struct {
 	onTick func(Progress)
+	log    func(format string, args ...any)
 }
 
 // RunInstaller runs the full NSIS installer silently (per user, no admin prompt) and waits for it.
@@ -92,8 +93,14 @@ func (s *winSys) RunInstaller(ctx context.Context, path string) error {
 	defer installStarted.Store(false)
 	cmd := exec.Command(path, "/S")
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if s.log != nil {
+		s.log("starting installer %s", filepath.Base(path))
+	}
 	if err := cmd.Start(); err != nil {
-		return err
+		if s.log != nil {
+			s.log("installer did not start: %v", err)
+		}
+		return fmt.Errorf("could not start the installer: %w", err)
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -105,6 +112,9 @@ func (s *winSys) RunInstaller(ctx context.Context, path string) error {
 		select {
 		case err := <-done:
 			if err != nil {
+				if s.log != nil {
+					s.log("installer ended: %v", err)
+				}
 				return fmt.Errorf("installer: %w", err)
 			}
 			return nil
@@ -136,7 +146,13 @@ func (s *winSys) Hold(path string) (func(), error) {
 
 // findInstalledZ looks up Z in the current user's installed programs (what the full installer registers) and
 // returns the path to Z.exe, or "".
-func findInstalledZ() string {
+func findInstalledZ() string { return findZ("") }
+
+// Installed: this version of Z is registered for this user and its Z.exe is there.
+func (s *winSys) Installed(version string) bool { return findZ(version) != "" }
+
+// findZ returns Z.exe of the installed Z, of the given version ("" = any), or "".
+func findZ(version string) string {
 	const root = `Software\Microsoft\Windows\CurrentVersion\Uninstall`
 	k, err := registry.OpenKey(registry.CURRENT_USER, root, registry.ENUMERATE_SUB_KEYS)
 	if err != nil {
@@ -152,8 +168,9 @@ func findInstalledZ() string {
 		name, _, _ := sk.GetStringValue("DisplayName")
 		pub, _, _ := sk.GetStringValue("Publisher")
 		loc, _, _ := sk.GetStringValue("InstallLocation")
+		ver, _, _ := sk.GetStringValue("DisplayVersion")
 		sk.Close()
-		if name != "Z" || !strings.Contains(pub, "Orvalen") || loc == "" {
+		if name != "Z" || !strings.Contains(pub, "Orvalen") || loc == "" || (version != "" && ver != version) {
 			continue
 		}
 		exe := filepath.Join(loc, "Z.exe")
