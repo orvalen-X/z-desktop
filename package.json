@@ -53,8 +53,7 @@
       "perMachine": false,
       "artifactName": "Z-Setup-${version}.${ext}",
       "shortcutName": "Z",
-      "uninstallDisplayName": "Z",
-      "deleteAppDataOnUninstall": true
+      "uninstallDisplayName": "Z"
     },
     "mac": {
       "target": [

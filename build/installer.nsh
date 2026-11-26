@@ -1,6 +1,7 @@
 ; Z's uninstaller leaves nothing behind (O 26.11): installing again starts from zero, like a new computer.
-; electron-builder already removes %APPDATA%\Z (sign-in, settings, cache) with nsis.deleteAppDataOnUninstall.
-; This adds what it does not know about (it removes HKCU\Software\<guid> itself, at the end). An update (the uninstaller run with --updated) keeps everything.
+; %APPDATA%\Z holds the sign-in, settings and cache. "Z" is a short name another program could also use, so the
+; folder is deleted only when Z's own file (z-desktop.json, which Z writes on every start) is in it.
+; electron-builder removes HKCU\Software\<guid> itself, at the end. An update (the uninstaller run with --updated) keeps everything.
 
 !macro zRemoveRunValues ROOTKEY
   ; "Start Z with the computer": any value of this user's Run list that starts this Z.exe.
@@ -44,6 +45,13 @@
   ${ifNot} ${isUpdated}
     ${If} $INSTDIR != ""
       !insertmacro zRemoveRunValues "Software\Microsoft\Windows\CurrentVersion\Run"
+    ${EndIf}
+    ; Z's own data. The uninstall runs per user, so $APPDATA is this user's Roaming folder.
+    ${If} ${FileExists} "$APPDATA\Z\z-desktop.json"
+      RMDir /r "$APPDATA\Z"
+    ${EndIf}
+    ${If} ${FileExists} "$APPDATA\z-desktop\z-desktop.json"
+      RMDir /r "$APPDATA\z-desktop"
     ${EndIf}
     ; The updater's downloads and the stored install package.
     RMDir /r "$LOCALAPPDATA\z-desktop-updater"

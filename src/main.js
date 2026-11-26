@@ -595,6 +595,8 @@ app.on('web-contents-created', (event, wc) => guardContents(wc));
 app.whenReady().then(() => {
   app.userAgentFallback = userAgent();
   loadPrefs();
+  // The file also marks this folder as Z's: the Windows uninstaller deletes the folder only when it finds it.
+  if (!fs.existsSync(prefsPath())) savePrefs();
   hardenSession(session.defaultSession);
   // The installer passes the person's "start with the computer" checkbox once, on the first start.
   const startWithComputer = autostartFromArgs(process.argv);
