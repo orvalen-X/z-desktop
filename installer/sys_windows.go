@@ -147,19 +147,22 @@ func (s *winSys) Hold(path string) (func(), error) {
 
 // findInstalledZ looks up Z in the current user's installed programs (what the full installer registers) and
 // returns the path to Z.exe, or "".
-func findInstalledZ() string { return findZ("") }
+func findInstalledZ() string { exe, _ := findZ(""); return exe }
+
+// installedZVersion is the version of the installed Z (its Uninstall entry's DisplayVersion), or "".
+func installedZVersion() string { _, ver := findZ(""); return ver }
 
 // Installed: this version of Z is registered for this user and its Z.exe is there.
-func (s *winSys) Installed(version string) bool { return findZ(version) != "" }
+func (s *winSys) Installed(version string) bool { exe, _ := findZ(version); return exe != "" }
 
-// findZ returns Z.exe of the installed Z, of the given version ("" = any), or "".
+// findZ returns Z.exe and the version of the installed Z, of the given version ("" = any), or "", "".
 // It matches the full installer's Uninstall entry (DisplayName "Z", Publisher Orvalen), then looks for Z.exe in
 // the folders that entry and HKCU\Software\<same key> point to.
-func findZ(version string) string {
+func findZ(version string) (string, string) {
 	const root = `Software\Microsoft\Windows\CurrentVersion\Uninstall`
 	k, err := registry.OpenKey(registry.CURRENT_USER, root, registry.ENUMERATE_SUB_KEYS)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	defer k.Close()
 	names, _ := k.ReadSubKeyNames(-1)
@@ -186,11 +189,11 @@ func findZ(version string) string {
 		for _, d := range zDirCandidates(loc, swLoc, icon, uninst) {
 			exe := filepath.Join(d, "Z.exe")
 			if st, err := os.Stat(exe); err == nil && !st.IsDir() {
-				return exe
+				return exe, ver
 			}
 		}
 	}
-	return ""
+	return "", ""
 }
 
 func waitForInstalledZ(max time.Duration) string {

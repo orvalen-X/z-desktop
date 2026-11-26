@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -73,9 +74,10 @@ func main() {
 	must(w.Bind("zsDrag", func() { dragWindow(a.hwnd) }))
 	must(w.Bind("zsAutostart", func(on bool) { a.mu.Lock(); a.autostart = on; a.mu.Unlock() }))
 	must(w.Bind("zsOpen", a.openInstalled))
+	must(w.Bind("zsCheck", a.checkUpdate))
 
 	installed := findInstalledZ() != ""
-	init, _ := json.Marshal(map[string]any{"lang": a.lang, "installed": installed, "autostart": false})
+	init, _ := json.Marshal(map[string]any{"lang": a.lang, "installed": installed, "have": installedZVersion(), "autostart": false})
 	// zs.init runs once the page is ready; the page then asks to start (or shows "already installed").
 	w.Init("window.addEventListener('DOMContentLoaded',()=>zs.init(" + string(init) + "))")
 	w.SetHtml(page)
@@ -122,6 +124,7 @@ func (a *app) start() {
 			Sys:     &winSys{onTick: a.progress, log: a.logf},
 			Report:  a.progress,
 			Now:     time.Now,
+			OnTag:   func(tag string) { a.eval("zs.version(" + jsString(tag) + ")") },
 		}
 		err := fl.Run(ctx)
 		if ctx.Err() != nil {
@@ -162,6 +165,23 @@ func (a *app) finish() {
 	}
 	time.Sleep(600 * time.Millisecond) // Z's window is drawn; let ours fade out over it
 	a.close()
+}
+
+// checkUpdate (Z already installed): asks which release is the newest, for the window's corner and, when it is
+// newer than the installed one, the "new version" screen. Offline or unclear: the "already here" screen stays.
+func (a *app) checkUpdate() {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		fl := &Flow{Client: NewClient(), Latest: releaseLatest}
+		if err := fl.ResolveLatest(ctx); err != nil || fl.Tag == "" {
+			a.logf("update check: %v", err)
+			return
+		}
+		have := installedZVersion()
+		a.logf("installed %s, newest %s", have, fl.Tag)
+		a.eval("zs.version(" + jsString(fl.Tag) + "," + strconv.FormatBool(newerVersion(have, fl.Tag)) + ")")
+	}()
 }
 
 func (a *app) openInstalled() {
