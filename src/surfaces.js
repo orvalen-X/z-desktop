@@ -9,6 +9,8 @@
 // - The window covers its display and nothing else: no address, no navigation, no new windows, no preload.
 // - Z's own window can move to the display the person chooses ("Main display", the Dock goes with it); the choice is
 //   remembered on this computer only.
+// - While Z has the focus, its windows sit above the system's taskbar on every display (Windows and Linux draw the
+//   taskbar over a full-screen window that is not the active one). Another app taking the focus lets it back.
 // Nothing here changes the system's own display settings.
 
 const NAME_PREFIX = 'zsurface-';
@@ -20,6 +22,30 @@ function createSurfaces({ screen, randomBytes, now, isMac, prefs, savePrefs }) {
   const pending = new Map(); // name -> { displayId, at }
   const opening = new Map(); // name -> displayId, between the open handler and did-create-window
   const open = new Map(); // displayId -> window
+  let active = false; // one of Z's windows has the focus
+  let moving = false; // Z's own window is on its way to another display
+  const LIFT = !isMac; // Mac: the old-style full screen already hides the menu bar and the Dock there
+
+  function lift(w, on) {
+    if (!LIFT || !w || w.isDestroyed()) return;
+    try {
+      w.setAlwaysOnTop(on, 'screen-saver');
+    } catch {
+      /* the window is closing */
+    }
+  }
+
+  // Z gained or lost the focus. mainWin is lifted too, but only in full screen (a framed window keeps its taskbar).
+  function setActive(on, mainWin) {
+    active = !!on;
+    for (const w of open.values()) lift(w, active);
+    if (mainWin && !mainWin.isDestroyed()) lift(mainWin, active && mainWin.isFullScreen());
+  }
+
+  const owns = (w) => {
+    for (const x of open.values()) if (x === w) return true;
+    return false;
+  };
 
   const findDisplay = (id) => screen.getAllDisplays().find((d) => String(d.id) === String(id)) || null;
 
@@ -93,6 +119,7 @@ function createSurfaces({ screen, randomBytes, now, isMac, prefs, savePrefs }) {
     // Mac: the old-style full screen keeps the window on its display without a new Space.
     if (isMac) w.setSimpleFullScreen(true);
     else w.setFullScreen(true);
+    if (active) lift(w, true);
     w.on('closed', () => {
       if (open.get(displayId) === w) open.delete(displayId);
     });
@@ -132,32 +159,69 @@ function createSurfaces({ screen, randomBytes, now, isMac, prefs, savePrefs }) {
     return { x: a.x, y: a.y, width: a.width, height: a.height };
   }
 
-  // Move Z's window to a display and remember the choice. Full screen stays full screen.
+  // Move Z's window to a display and remember the choice. Full screen stays full screen. Already there: nothing moves.
+  // The window is see-through while it travels, so the person sees one jump, not the steps in between.
   function moveMain(win, displayId) {
     const d = findDisplay(displayId);
     if (!d || !win || win.isDestroyed()) return { ok: false };
     prefs.mainDisplay = String(d.id);
     savePrefs();
+    const here = typeof screen.getDisplayMatching === 'function' ? screen.getDisplayMatching(win.getBounds()) : null;
+    if (here && String(here.id) === String(d.id)) return { ok: true };
     const a = d.workArea;
+    const fade = (v) => {
+      try {
+        if (!win.isDestroyed()) win.setOpacity(v);
+      } catch {
+        /* not supported here */
+      }
+    };
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      moving = false;
+      fade(1);
+    };
     const place = () => {
       if (win.isDestroyed()) return;
       if (win.isMaximized()) win.unmaximize();
       win.setBounds({ x: a.x, y: a.y, width: a.width, height: a.height });
     };
+    moving = true;
+    fade(0);
     if (win.isFullScreen()) {
       win.once('leave-full-screen', () => {
         place();
-        if (!win.isDestroyed()) win.setFullScreen(true);
+        if (win.isDestroyed()) return finish();
+        win.once('enter-full-screen', finish);
+        win.setFullScreen(true);
       });
+      // Whatever the system does, the window never stays invisible.
+      setTimeout(finish, 2000);
       win.setFullScreen(false);
     } else {
       place();
       win.maximize();
+      finish();
     }
     return { ok: true };
   }
 
-  return { prepare, claim, displayOfOpening, adopt, prune, closeAll, startBounds, moveMain, count: () => open.size };
+  return {
+    prepare,
+    claim,
+    displayOfOpening,
+    adopt,
+    prune,
+    closeAll,
+    startBounds,
+    moveMain,
+    setActive,
+    owns,
+    moving: () => moving,
+    count: () => open.size,
+  };
 }
 
 module.exports = { createSurfaces, NAME_PREFIX, NAME_TTL_MS };
