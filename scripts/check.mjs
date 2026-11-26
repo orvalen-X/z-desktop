@@ -568,7 +568,8 @@ test('main checks every Z request comes from Z itself', () => {
   class FakeWin {
     constructor(o) {
       this.o = o; this.ev = {}; this.once_ = {}; this.destroyed = false; this.fs = false; this.simple = false; this.top = false; this.b = null; this.url = '';
-      this.webContents = { on() {}, setUserAgent: (u) => (this.ua = u), isDestroyed: () => this.destroyed, send() {} };
+      this.wcev = {}; this.reloads = 0;
+      this.webContents = { on: (k, f) => (this.wcev[k] = f), reload: () => this.reloads++, setUserAgent: (u) => (this.ua = u), isDestroyed: () => this.destroyed, send() {} };
       made.push(this);
     }
     isDestroyed() { return this.destroyed; }
@@ -624,6 +625,37 @@ test('main checks every Z request comes from Z itself', () => {
     list.v = [D(1, 0), D(2, 1920)];
     d.sync();
     assert.equal(d.count(), 1, 'the display came back: a new Z');
+    d.closeAll();
+  });
+  test('desks: a crashed Z loads again (3 times, then its window closes); a failed load tries again', () => {
+    made.length = 0;
+    const list = { v: [D(1, 0), D(2, 1920)] };
+    const d = mk(list, { v: '1' });
+    d.setEnabled(true);
+    const w = made[0];
+    for (let i = 0; i < 3; i++) w.wcev['render-process-gone']();
+    assert.equal(w.reloads, 3);
+    assert.equal(d.count(), 1);
+    w.wcev['render-process-gone']();
+    assert.ok(w.destroyed, 'the fourth crash closes it');
+    assert.equal(d.count(), 0);
+    d.sync();
+    assert.equal(d.count(), 1, 'not counted as closed by the person: the next sync brings a new one');
+    const w2 = made[1];
+    const realSetTimeout = globalThis.setTimeout;
+    const later = [];
+    globalThis.setTimeout = (fn) => later.push(fn);
+    try {
+      w2.url = '';
+      w2.wcev['did-fail-load']({}, -3, '', '', true);
+      w2.wcev['did-fail-load']({}, -105, '', '', false);
+      assert.equal(later.length, 0, 'a replaced navigation or a frame inside is not a failure');
+      w2.wcev['did-fail-load']({}, -105, '', '', true);
+      later.forEach((fn) => fn());
+      assert.equal(w2.url, 'https://orvalen.me/');
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
     d.closeAll();
   });
   test('desks: full screen together, above the taskbar only while Z has the focus; Windows keeps the taskbar entry', () => {

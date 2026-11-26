@@ -11,9 +11,13 @@
 //   window that is not the active one). On Windows each window keeps its taskbar entry, grouped under Z's button:
 //   the taskbar steps aside only for a full-screen window it knows.
 // - A window the person closes stays closed until the displays change or extend is turned on again.
+// - A window whose Z crashed loads again (up to 3 times); one that could not load tries again after 5 seconds.
 // Each window loads Z's own address with the same preload, which tells Z the display it is on (--z-desktop-display).
 // Navigation and new windows are guarded like Z's own view (guardContents runs for every web contents).
 // Nothing here changes the system's own display settings.
+
+const MAX_CRASHES = 3;
+const RETRY_MS = 5000;
 
 function createDesks({ BrowserWindow, screen, isMac, isWin, webPreferences, startUrl, userAgent, mainDisplayId, onCreate }) {
   const open = new Map(); // displayId -> window
@@ -86,6 +90,22 @@ function createDesks({ BrowserWindow, screen, isMac, isWin, webPreferences, star
       w.showInactive();
       cover(w, id);
       if (active && full) lift(w, true);
+    });
+    // A display whose Z crashed or could not load must not stay a frozen or empty window over that display:
+    // it loads again (a crash up to 3 times; after that it closes until the displays change or extend is switched).
+    let crashes = 0;
+    w.webContents.on('render-process-gone', () => {
+      if (w.isDestroyed() || open.get(id) !== w) return;
+      crashes += 1;
+      if (crashes > MAX_CRASHES) shut(id);
+      else w.webContents.reload();
+    });
+    w.webContents.on('did-fail-load', (_event, code, _desc, _url, isMainFrame) => {
+      // -3 = a navigation was replaced by another one: not a failure.
+      if (!isMainFrame || code === -3) return;
+      setTimeout(() => {
+        if (!w.isDestroyed() && open.get(id) === w) w.loadURL(startUrl);
+      }, RETRY_MS);
     });
     w.on('closed', () => {
       if (open.get(id) === w) open.delete(id);
