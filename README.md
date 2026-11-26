@@ -39,12 +39,22 @@ If Windows says the app was blocked and offers no **Run anyway**, Smart App Cont
 
 ## Using it
 
-- **F11** switches between full screen and a window (on macOS also **Ctrl+Cmd+F**).
+- Z always opens in full screen. **F11** (on macOS also **Ctrl+Cmd+F**), or the full-screen button in Z's top bar, switches to a maximized window with a slim Z window bar, and back.
+- **Start with the computer:** off unless you turn it on (in the installer, or in Z). Z then opens in full screen when you sign in to your computer.
 - **Alt+Tab** / **Cmd+Tab** move between apps as usual.
 - Links to other websites open in your normal browser.
 - Each installer has a SHA256 checksum next to it, so you can check the download.
 - **Updates:** on Windows and with the AppImage, new versions download in the background, and Z asks whether to restart now to install them. Nothing installs until you click "Restart now"; with "Later", Z asks again the next time it starts. On macOS and with the DEB, Z tells you when a new version is out and opens the download. Updates come only from this repository's Releases page. Right-click the Z icon (or the Z menu on macOS) → **Check for updates** to check right away.
 - Sign in with email and password. Google sign-in arrives in the next version.
+
+## Release names
+
+Each version has a name, shown in the window bar instead of a number: this one is **Z · DNA**. The number (`version` in `package.json`) stays for updates; the name is `zReleaseName`.
+
+## What Z's page can ask the app
+
+Only Z's own page (the top frame on orvalen.me, never an app frame inside it) gets `window.zDesktop`:
+`fullscreen.get() / set(on) / toggle() / onChange(fn)` and `autostart.get() / set(on)`. Nothing else: no files, no system, no network.
 
 ## What the app does, and what it doesn't
 
