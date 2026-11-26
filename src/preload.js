@@ -6,6 +6,8 @@
 // - "start Z when the computer starts": read it and switch it;
 // - displays (api 2): read the connected displays, hear when they change, show a number on each, open the system's
 //   display settings. Nothing that changes the system.
+// - extend (api 3): a one-time name for a plain window on one display (Z draws there itself), and moving Z's own
+//   window to the display the person chooses.
 // No file, system or network access is exposed to the page. The main process also checks that each request
 // comes from Z's own page (not from an app frame inside it) before it does anything.
 
@@ -43,7 +45,7 @@ contextBridge.exposeInMainWorld(
   'zDesktop',
   Object.freeze({
     isDesktopApp: true,
-    api: 2,
+    api: 3,
     platform: process.platform,
     version: arg('z-desktop-version'),
     release: arg('z-desktop-release'),
@@ -62,6 +64,8 @@ contextBridge.exposeInMainWorld(
       onChange: (fn) => subscribe(displayListeners, fn),
       identify: () => ipcRenderer.invoke('zd:displays:identify'),
       openSystemSettings: () => ipcRenderer.invoke('zd:displays:settings'),
+      surface: (id) => ipcRenderer.invoke('zd:displays:surface', String(id)),
+      setMain: (id) => ipcRenderer.invoke('zd:displays:main', String(id)),
     }),
   }),
 );

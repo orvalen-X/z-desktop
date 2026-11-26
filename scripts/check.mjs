@@ -15,7 +15,7 @@ const test = (name, fn) => {
   }
 };
 
-for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js', 'src/autostart.js', 'src/displays.js']) {
+for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js', 'src/autostart.js', 'src/displays.js', 'src/surfaces.js']) {
   test(`syntax ${f}`, () => execFileSync(process.execPath, ['--check', f]));
 }
 
@@ -274,17 +274,17 @@ test('autostart: Windows registers with --autostart, Mac without arguments', () 
 }
 
 // ---------- the page API: only these names, and the release name travels with the version ----------
-test('preload exposes only the full-screen, autostart and display-reading calls', () => {
+test('preload exposes only the full-screen, autostart, display and extend calls', () => {
   const src = readFileSyncSafe('src/preload.js');
-  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'"].includes(ch), ch);
-  assert.ok(/api: 2,/.test(src), 'api 2');
+  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'"].includes(ch), ch);
+  assert.ok(/api: 3,/.test(src), 'api 3');
   assert.ok(!/require\('(?!electron')/.test(src), 'preload requires only electron');
 });
 test('main checks every Z request comes from Z itself', () => {
   const src = readFileSyncSafe('src/main.js');
   const handlers = src.match(/ipcMain\.handle\('zd:[a-z:]+', \([^)]*\) =>\s*\(?\s*fromZ\(e\)/g) || [];
   assert.equal(handlers.length, (src.match(/ipcMain\.handle\(/g) || []).length);
-  assert.equal(handlers.length, 8);
+  assert.equal(handlers.length, 10);
 });
 
 // ---------- displays (layer 0): read only, numbers only, fixed system-settings targets ----------
@@ -364,6 +364,98 @@ test('main checks every Z request comes from Z itself', () => {
     assert.ok(html.includes("default-src 'none'"));
     assert.ok(html.includes('/^[1-9][0-9]?$/'));
     assert.ok(!/<script\s+src=/i.test(html));
+  });
+}
+
+// ---------- extend (api 3): blank windows only with a fresh one-time name from Z, one per display ----------
+{
+  const { createSurfaces, NAME_TTL_MS } = require('../src/surfaces.js');
+  const D = (id, x) => ({ id, bounds: { x, y: 0, width: 1920, height: 1080 }, workArea: { x, y: 0, width: 1920, height: 1040 } });
+  let list = [D(1, 0), D(2, 1920)];
+  let t = 1000;
+  let n = 0;
+  const prefs = { mainDisplay: null };
+  let saved = 0;
+  const mk = (isMac = false) => createSurfaces({
+    screen: { getAllDisplays: () => list },
+    randomBytes: (k) => Buffer.alloc(k, ++n),
+    now: () => t,
+    isMac,
+    prefs,
+    savePrefs: () => (saved += 1),
+  });
+  const fakeWin = () => {
+    const ev = {};
+    const w = {
+      destroyed: false, fs: false, simple: false, shown: false, handlers: {}, deny: null,
+      isDestroyed: () => w.destroyed, destroy: () => { w.destroyed = true; (ev.closed || (() => {}))(); },
+      setFullScreen: (on) => (w.fs = on), setSimpleFullScreen: (on) => (w.simple = on), showInactive: () => (w.shown = true),
+      on: (name, fn) => (ev[name] = fn),
+      webContents: { on: (name, fn) => (w.handlers[name] = fn), setWindowOpenHandler: (fn) => (w.deny = fn) },
+    };
+    return w;
+  };
+  test('extend: a name works once, only fresh, only for a connected display', () => {
+    const s = mk();
+    assert.equal(s.prepare('9'), null, 'unknown display');
+    const { name } = s.prepare('2');
+    assert.match(name, /^zsurface-[0-9a-f]{32}$/);
+    assert.equal(s.claim('zsurface-' + '0'.repeat(32), {}), null, 'a guessed name');
+    assert.equal(s.claim('evil', {}), null);
+    const c = s.claim(name, { sandbox: true });
+    assert.equal(c.displayId, '2');
+    assert.deepEqual([c.options.x, c.options.width, c.options.frame, c.options.skipTaskbar], [1920, 1920, false, true]);
+    assert.deepEqual(c.options.webPreferences, { sandbox: true });
+    assert.equal(s.claim(name, {}), null, 'single use');
+    const late = s.prepare('2').name;
+    t += NAME_TTL_MS + 1;
+    assert.equal(s.claim(late, {}), null, 'expired');
+  });
+  test('extend: the window is locked down, covers its display, and goes with it', () => {
+    const s = mk();
+    const { name } = s.prepare('2');
+    s.claim(name, {});
+    assert.equal(s.displayOfOpening(name), '2');
+    assert.equal(s.displayOfOpening(name), null, 'once');
+    const w = fakeWin();
+    s.adopt(w, '2');
+    assert.ok(w.shown && w.fs && !w.simple);
+    assert.equal(w.deny().action, 'deny');
+    let stopped = false;
+    w.handlers['will-navigate']({ preventDefault: () => (stopped = true) });
+    assert.ok(stopped, 'no navigation');
+    assert.equal(s.count(), 1);
+    list = [D(1, 0)];
+    s.prune();
+    assert.ok(w.destroyed);
+    assert.equal(s.count(), 0);
+    list = [D(1, 0), D(2, 1920)];
+    const m = mk(true);
+    const w2 = fakeWin();
+    m.adopt(w2, '2');
+    assert.ok(w2.simple && !w2.fs, 'Mac keeps it on its display without a new Space');
+    m.closeAll();
+    assert.ok(w2.destroyed);
+  });
+  test('extend: the main display is remembered and Z starts there', () => {
+    const s = mk();
+    assert.equal(s.startBounds(), null);
+    const ev = {};
+    const win = { isDestroyed: () => false, isFullScreen: () => false, isMaximized: () => false, unmaximize() {}, setBounds: (b) => (win.b = b), maximize: () => (win.max = true), once: (k, f) => (ev[k] = f), setFullScreen() {} };
+    assert.deepEqual(s.moveMain(win, '9'), { ok: false });
+    assert.deepEqual(s.moveMain(win, '2'), { ok: true });
+    assert.equal(prefs.mainDisplay, '2');
+    assert.equal(saved, 1);
+    assert.deepEqual(win.b, { x: 1920, y: 0, width: 1920, height: 1040 });
+    assert.deepEqual(s.startBounds(), { x: 1920, y: 0, width: 1920, height: 1040 });
+    list = [D(1, 0)];
+    assert.equal(s.startBounds(), null, 'unplugged: start where the system puts it');
+    list = [D(1, 0), D(2, 1920)];
+  });
+  test('extend: main checks the blank window comes from Z view with a claimed name', () => {
+    const src = readFileSyncSafe('src/main.js');
+    assert.ok(/if \(blank && surfaces && zView && wc === zView\.webContents\) \{\s*const s = surfaces\.claim\(frameName, secureWebPreferences\(false\)\);/.test(src));
+    assert.ok(src.includes("if (blank) return { action: 'deny' };"), 'every other blank window is refused');
   });
 }
 

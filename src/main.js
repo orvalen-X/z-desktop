@@ -11,6 +11,8 @@ const { createPermissions } = require('./permissions');
 const { createUpdates, RELEASES_API } = require('./updates');
 const { createAutostart, autostartFromArgs } = require('./autostart');
 const { createDisplays } = require('./displays');
+const { createSurfaces } = require('./surfaces');
+const { randomBytes } = require('node:crypto');
 const pkg = require('../package.json');
 
 // One Z per computer: a second launch focuses the running one.
@@ -35,7 +37,7 @@ let zView = null;
 let barView = null;
 let offline = false;
 let retryTimer = null;
-let prefs = { lang: null, perms: {}, updSkipped: null };
+let prefs = { lang: null, perms: {}, updSkipped: null, mainDisplay: null };
 const RESET_ARG = '--reset-permissions';
 const UPDATE_ARG = '--check-updates';
 
@@ -50,6 +52,7 @@ function loadPrefs() {
     if (p && typeof p.lang === 'string') prefs.lang = p.lang;
     if (p && p.perms && typeof p.perms === 'object') prefs.perms = p.perms;
     if (p && typeof p.updSkipped === 'string') prefs.updSkipped = p.updSkipped;
+    if (p && typeof p.mainDisplay === 'string' && p.mainDisplay.length <= 40) prefs.mainDisplay = p.mainDisplay;
   } catch {
     /* first run */
   }
@@ -194,8 +197,13 @@ function guardContents(wc) {
   // New windows: Z's own pages stay in Z, everything else opens in the browser.
   // Blank windows are refused: Electron cannot tell whether Z or a third-party frame inside Z opened one
   // (the referrer is empty for both), and a blank window can be filled with a fake sign-in form.
-  wc.setWindowOpenHandler(({ url }) => {
+  wc.setWindowOpenHandler(({ url, frameName }) => {
     const blank = url === 'about:blank' || url === '';
+    // Extend: a blank window Z's own page prepared a moment ago (one-time name), only from Z's view.
+    if (blank && surfaces && zView && wc === zView.webContents) {
+      const s = surfaces.claim(frameName, secureWebPreferences(false));
+      if (s) return { action: 'allow', overrideBrowserWindowOptions: s.options };
+    }
     if (cfg.isAppUrl(url)) {
       return {
         action: 'allow',
@@ -389,6 +397,8 @@ const NO_DISPLAYS = { displays: [], system: { platform: process.platform, waylan
 function sendDisplays(snap) {
   if (zView && !zView.webContents.isDestroyed()) zView.webContents.send('zd:displays', snap);
 }
+// Extend (way B): Z draws on one plain window per extra display. Made with the displays, after the app is ready.
+let surfaces = null;
 function startDisplays() {
   displays = createDisplays({
     screen,
@@ -400,7 +410,10 @@ function startDisplays() {
     identifyFile: path.join(__dirname, 'identify.html'),
     webPreferences: secureWebPreferences(false),
     zWindow: () => win,
-    send: sendDisplays,
+    send: (snap) => {
+      if (surfaces) surfaces.prune();
+      sendDisplays(snap);
+    },
   });
   displays.listen();
 }
@@ -417,14 +430,25 @@ function listenToZ() {
   // Identify windows open only when Z asks (never at start: Z Setup waits for Z's first visible window).
   ipcMain.handle('zd:displays:identify', (e) => (fromZ(e) && displays ? displays.identify() : { shown: 0 }));
   ipcMain.handle('zd:displays:settings', (e) => (fromZ(e) && displays ? displays.openSystemSettings() : { opened: false }));
+  // Extend: a one-time window name for one display (Z then calls window.open('', name)).
+  ipcMain.handle('zd:displays:surface', (e, id) =>
+    fromZ(e) && surfaces && (typeof id === 'string' || typeof id === 'number') ? surfaces.prepare(String(id)) : null,
+  );
+  // The main display: Z's own window (and its Dock) moves there; remembered on this computer.
+  ipcMain.handle('zd:displays:main', (e, id) =>
+    fromZ(e) && surfaces && (typeof id === 'string' || typeof id === 'number') ? surfaces.moveMain(win, String(id)) : { ok: false },
+  );
 }
 
 // ---------- the Z window ----------
 
 function createWindow() {
+  // The display the person chose for Z (Settings > Displays > Main display), when it is still connected.
+  const start = surfaces ? surfaces.startBounds() : null;
   win = new BaseWindow({
     width: 1440,
     height: 900,
+    ...(start || {}),
     minWidth: 1024,
     minHeight: 640,
     show: false,
@@ -448,6 +472,13 @@ function createWindow() {
   zView = new WebContentsView({ webPreferences: secureWebPreferences(true) });
   zView.setBackgroundColor('#2b2b2d');
   zView.webContents.setUserAgent(userAgent());
+  // Extend: a window Z prepared for a display is locked down and covers that display.
+  zView.webContents.on('did-create-window', (child, details) => {
+    const id = surfaces && surfaces.displayOfOpening(details && details.frameName);
+    if (id) surfaces.adopt(child, id);
+  });
+  // A new page of Z (reload, sign-out) opens its own windows: the old page's are closed.
+  zView.webContents.on('did-navigate', () => surfaces && surfaces.closeAll());
 
   win.contentView.addChildView(zView);
   win.contentView.addChildView(barView);
@@ -509,6 +540,7 @@ function createWindow() {
   win.on('moved', () => displays && displays.changed());
   win.on('closed', () => {
     if (displays) displays.closeIdentify();
+    if (surfaces) surfaces.closeAll();
     // Views are not closed with the window: close them, so nothing keeps running.
     for (const v of [zView, barView]) if (v && !v.webContents.isDestroyed()) v.webContents.close();
     win = null;
@@ -635,6 +667,7 @@ app.whenReady().then(() => {
   listenToZ();
   buildMenu();
   buildIconMenu();
+  surfaces = createSurfaces({ screen, randomBytes, isMac, prefs, savePrefs });
   createWindow();
   startDisplays();
   if (process.argv.includes(RESET_ARG)) resetPermissions();
