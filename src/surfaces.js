@@ -9,6 +9,7 @@
 // - The window covers its display and nothing else: no address, no navigation, no new windows, no preload.
 // - Z's own window can move to the display the person chooses ("Main display", the Dock goes with it); the choice is
 //   remembered on this computer only.
+// - On Windows the window keeps its taskbar entry: the taskbar steps aside only for a full-screen window it knows.
 // - While Z has the focus, its windows sit above the system's taskbar on every display (Windows and Linux draw the
 //   taskbar over a full-screen window that is not the active one). Another app taking the focus lets it back.
 // Nothing here changes the system's own display settings.
@@ -17,7 +18,7 @@ const NAME_PREFIX = 'zsurface-';
 const NAME_TTL_MS = 10000;
 const NAME_RE = /^zsurface-[0-9a-f]{32}$/;
 
-function createSurfaces({ screen, randomBytes, now, isMac, prefs, savePrefs }) {
+function createSurfaces({ screen, randomBytes, now, isMac, isWin, prefs, savePrefs }) {
   const clock = now || Date.now;
   const pending = new Map(); // name -> { displayId, at }
   const opening = new Map(); // name -> displayId, between the open handler and did-create-window
@@ -88,7 +89,9 @@ function createSurfaces({ screen, randomBytes, now, isMac, prefs, savePrefs }) {
         minimizable: false,
         maximizable: false,
         fullscreenable: true,
-        skipTaskbar: true,
+        // Windows hides its taskbar over a full-screen window only when the taskbar knows that window, so there it
+        // keeps its taskbar entry (grouped under Z's own button). Elsewhere it stays out of the taskbar.
+        skipTaskbar: !isWin,
         autoHideMenuBar: true,
         backgroundColor: '#2b2b2d',
         title: 'Z',

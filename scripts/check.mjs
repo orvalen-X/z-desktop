@@ -420,6 +420,8 @@ test('main checks every Z request comes from Z itself', () => {
     const c = s.claim(name, { sandbox: true });
     assert.equal(c.displayId, '2');
     assert.deepEqual([c.options.x, c.options.width, c.options.frame, c.options.skipTaskbar], [1920, 1920, false, true]);
+    const w = createSurfaces({ screen: { getAllDisplays: () => list }, randomBytes: (k) => Buffer.alloc(k, 7), isMac: false, isWin: true, prefs, savePrefs: () => {} });
+    assert.equal(w.claim(w.prepare('2').name, {}).options.skipTaskbar, false, 'Windows: the taskbar steps aside only for a window it knows');
     assert.deepEqual(c.options.webPreferences, { sandbox: true });
     assert.equal(s.claim(name, {}), null, 'single use');
     const late = s.prepare('2').name;

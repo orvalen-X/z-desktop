@@ -679,7 +679,7 @@ app.whenReady().then(() => {
   listenToZ();
   buildMenu();
   buildIconMenu();
-  surfaces = createSurfaces({ screen, randomBytes, isMac, prefs, savePrefs });
+  surfaces = createSurfaces({ screen, randomBytes, isMac, isWin: process.platform === 'win32', prefs, savePrefs });
   app.on('browser-window-focus', checkFocus);
   app.on('browser-window-blur', checkFocus);
   createWindow();
