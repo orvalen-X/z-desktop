@@ -433,7 +433,7 @@ func (fl *Flow) Install(ctx context.Context, path, version string) error {
 			}
 			continue
 		}
-		if !already && fl.waitInstalled(ctx, version, wait) {
+		if fl.waitInstalled(ctx, version, wait) {
 			err = nil
 			break
 		}

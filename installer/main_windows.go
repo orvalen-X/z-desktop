@@ -143,17 +143,24 @@ func (a *app) start() {
 	}()
 }
 
-// finish opens Z with the person's "start with the computer" choice and closes Z Setup after the fade.
+// finish opens Z with the person's "start with the computer" choice, keeps the "ready" screen up until Z's own
+// window is on the screen (so there is no empty moment in between), then closes Z Setup.
 func (a *app) finish() {
 	a.mu.Lock()
 	on := a.autostart
 	a.mu.Unlock()
 	a.eval("zs.ready()")
 	exe := waitForInstalledZ(10 * time.Second)
-	if exe != "" {
-		_ = launchZ(exe, on)
+	if exe == "" {
+		a.logf("installed, but Z.exe was not found")
+	} else if err := launchZ(exe, on); err != nil {
+		a.logf("could not open Z: %v", err)
+	} else if !waitForZWindow(exe, 60*time.Second) {
+		a.logf("Z started, but its window did not appear within 60s")
+	} else {
+		a.logf("Z is open")
 	}
-	time.Sleep(2200 * time.Millisecond)
+	time.Sleep(600 * time.Millisecond) // Z's window is drawn; let ours fade out over it
 	a.close()
 }
 
@@ -209,8 +216,8 @@ func (a *app) logf(format string, args ...any) {
 // short keeps the window's detail line to one readable line.
 func short(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > 140 {
-		s = s[:140] + "…"
+	if r := []rune(s); len(r) > 140 {
+		s = string(r[:140]) + "…"
 	}
 	return s
 }

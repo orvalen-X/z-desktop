@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -152,6 +153,8 @@ func findInstalledZ() string { return findZ("") }
 func (s *winSys) Installed(version string) bool { return findZ(version) != "" }
 
 // findZ returns Z.exe of the installed Z, of the given version ("" = any), or "".
+// It matches the full installer's Uninstall entry (DisplayName "Z", Publisher Orvalen), then looks for Z.exe in
+// the folders that entry and HKCU\Software\<same key> point to.
 func findZ(version string) string {
 	const root = `Software\Microsoft\Windows\CurrentVersion\Uninstall`
 	k, err := registry.OpenKey(registry.CURRENT_USER, root, registry.ENUMERATE_SUB_KEYS)
@@ -167,15 +170,24 @@ func findZ(version string) string {
 		}
 		name, _, _ := sk.GetStringValue("DisplayName")
 		pub, _, _ := sk.GetStringValue("Publisher")
-		loc, _, _ := sk.GetStringValue("InstallLocation")
 		ver, _, _ := sk.GetStringValue("DisplayVersion")
+		loc, _, _ := sk.GetStringValue("InstallLocation")
+		icon, _, _ := sk.GetStringValue("DisplayIcon")
+		uninst, _, _ := sk.GetStringValue("UninstallString")
 		sk.Close()
-		if name != "Z" || !strings.Contains(pub, "Orvalen") || loc == "" || (version != "" && ver != version) {
+		if name != "Z" || !strings.Contains(pub, "Orvalen") || (version != "" && ver != version) {
 			continue
 		}
-		exe := filepath.Join(loc, "Z.exe")
-		if st, err := os.Stat(exe); err == nil && !st.IsDir() {
-			return exe
+		var swLoc string
+		if ak, err := registry.OpenKey(registry.CURRENT_USER, `Software\`+n, registry.QUERY_VALUE); err == nil {
+			swLoc, _, _ = ak.GetStringValue("InstallLocation")
+			ak.Close()
+		}
+		for _, d := range zDirCandidates(loc, swLoc, icon, uninst) {
+			exe := filepath.Join(d, "Z.exe")
+			if st, err := os.Stat(exe); err == nil && !st.IsDir() {
+				return exe
+			}
 		}
 	}
 	return ""
@@ -200,6 +212,65 @@ func launchZ(exe string, autostart bool) error {
 	cmd := exec.Command(exe, arg)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS}
 	return cmd.Start()
+}
+
+var (
+	zWinMu    sync.Mutex
+	zWinExe   string
+	zWinFound bool
+	zWinCb    = syscall.NewCallback(func(hwnd windows.HWND, _ uintptr) uintptr {
+		if !windows.IsWindowVisible(hwnd) {
+			return 1
+		}
+		var pid uint32
+		if _, err := windows.GetWindowThreadProcessId(hwnd, &pid); err != nil || pid == 0 {
+			return 1
+		}
+		if strings.EqualFold(processImage(pid), zWinExe) {
+			zWinFound = true
+			return 0 // stop
+		}
+		return 1
+	})
+)
+
+// processImage is the full path of a running program, or "".
+func processImage(pid uint32) string {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return ""
+	}
+	defer windows.CloseHandle(h)
+	buf := make([]uint16, windows.MAX_LONG_PATH)
+	n := uint32(len(buf))
+	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &n); err != nil {
+		return ""
+	}
+	return windows.UTF16ToString(buf[:n])
+}
+
+// zWindowShown: a visible window of this Z.exe is on the screen.
+func zWindowShown(exe string) bool {
+	zWinMu.Lock()
+	defer zWinMu.Unlock()
+	zWinExe, zWinFound = exe, false
+	_ = windows.EnumWindows(zWinCb, nil) // returns an error when the callback stops early
+	return zWinFound
+}
+
+// waitForZWindow waits until Z's own window is on the screen, at most max. Z shows its window once its first
+// page is ready (or after 3 seconds), so this is when the person really sees Z.
+func waitForZWindow(exe string, max time.Duration) bool {
+	deadline := time.Now().Add(max)
+	for {
+		if zWindowShown(exe) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 // noWebView: the window engine (WebView2, part of Windows 11 and updated Windows 10) is missing.
