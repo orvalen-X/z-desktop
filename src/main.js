@@ -12,6 +12,7 @@ const { createUpdates, RELEASES_API } = require('./updates');
 const { createAutostart, autostartFromArgs } = require('./autostart');
 const { createDisplays } = require('./displays');
 const { createSurfaces } = require('./surfaces');
+const { createDesks } = require('./desks');
 const { randomBytes } = require('node:crypto');
 const { createNavigationGuard } = require('./navGuard');
 const pkg = require('../package.json');
@@ -222,7 +223,8 @@ function guardContents(wc) {
   wc.on('will-attach-webview', (event) => event.preventDefault());
 }
 
-function secureWebPreferences(withPreload) {
+// display: the id of the display a whole Z runs on (extend, way A); empty for Z's own window.
+function secureWebPreferences(withPreload, display) {
   return {
     contextIsolation: true,
     sandbox: true,
@@ -233,7 +235,11 @@ function secureWebPreferences(withPreload) {
     ...(withPreload
       ? {
           preload: path.join(__dirname, 'preload.js'),
-          additionalArguments: [`--z-desktop-version=${app.getVersion()}`, `--z-desktop-release=${RELEASE_NAME}`],
+          additionalArguments: [
+            `--z-desktop-version=${app.getVersion()}`,
+            `--z-desktop-release=${RELEASE_NAME}`,
+            ...(display ? [`--z-desktop-display=${display}`] : []),
+          ],
         }
       : {}),
   };
@@ -353,7 +359,9 @@ function layout() {
 }
 
 function tellZ() {
-  if (zView && !zView.webContents.isDestroyed()) zView.webContents.send('zd:fs', isFullscreen());
+  const on = isFullscreen();
+  if (zView && !zView.webContents.isDestroyed()) zView.webContents.send('zd:fs', on);
+  if (desks) desks.each((wc) => wc.send('zd:fs', on));
 }
 
 // The one way full screen changes: F11, the Mac menu, and the top-bar button in Z all come here.
@@ -371,7 +379,14 @@ function toggleFullscreen() {
 
 // Only Z's own page may ask: the top frame of the Z view, on Z's address. App frames inside Z never get here
 // (the preload runs only in the top frame), and this check refuses them even if they tried.
+// The Z on another display (extend, way A) may ask too, except for what only Z's own window decides (fromMainZ).
 function fromZ(event) {
+  if (fromMainZ(event)) return true;
+  const wc = event.sender;
+  const frame = event.senderFrame;
+  return !!desks && !!wc && desks.displayOf(wc) !== null && !!frame && frame === wc.mainFrame && cfg.isAppUrl(frame.url);
+}
+function fromMainZ(event) {
   const wc = zView && zView.webContents;
   const frame = event.senderFrame;
   return !!wc && event.sender === wc && !!frame && frame === wc.mainFrame && cfg.isAppUrl(frame.url);
@@ -392,6 +407,18 @@ let displays = null;
 const NO_DISPLAYS = { displays: [], system: { platform: process.platform, wayland: false, canOpenSettings: false, canChange: false } };
 function sendDisplays(snap) {
   if (zView && !zView.webContents.isDestroyed()) zView.webContents.send('zd:displays', snap);
+  if (desks) desks.each((wc) => wc.send('zd:displays', snap));
+}
+// Extend (way A): a whole Z on every extra display. Made after the app is ready.
+let desks = null;
+// The display Z's own window is on now.
+function mainDisplayId() {
+  if (!win || win.isDestroyed()) return null;
+  try {
+    return String(screen.getDisplayMatching(win.getBounds()).id);
+  } catch {
+    return null;
+  }
 }
 // Extend (way B): Z draws on one plain window per extra display. Made with the displays, after the app is ready.
 let surfaces = null;
@@ -403,7 +430,9 @@ function checkFocus() {
   focusCheck = setTimeout(() => {
     if (!surfaces) return;
     const f = BrowserWindow.getFocusedWindow();
-    surfaces.setActive(!!f && !!win && (f === win || surfaces.owns(f)), win && !win.isDestroyed() ? win : null);
+    const on = !!f && !!win && (f === win || surfaces.owns(f) || (!!desks && desks.owns(f)));
+    surfaces.setActive(on, win && !win.isDestroyed() ? win : null);
+    if (desks) desks.setActive(on);
   }, 120);
 }
 function startDisplays() {
@@ -419,6 +448,7 @@ function startDisplays() {
     zWindow: () => win,
     send: (snap) => {
       if (surfaces) surfaces.prune();
+      if (desks) desks.sync();
       sendDisplays(snap);
     },
   });
@@ -431,19 +461,21 @@ function listenToZ() {
   ipcMain.handle('zd:fs:toggle', (e) => (fromZ(e) ? toggleFullscreen() : isFullscreen()));
   ipcMain.handle('zd:autostart:get', (e) => (fromZ(e) ? autostart.get() : { supported: false, enabled: false }));
   ipcMain.handle('zd:autostart:set', (e, on) =>
-    fromZ(e) && typeof on === 'boolean' ? autostart.set(on) : { supported: false, enabled: false },
+    fromMainZ(e) && typeof on === 'boolean' ? autostart.set(on) : { supported: false, enabled: false },
   );
   ipcMain.handle('zd:displays:get', (e) => (fromZ(e) && displays ? displays.snapshot() : NO_DISPLAYS));
   // Identify windows open only when Z asks (never at start: Z Setup waits for Z's first visible window).
   ipcMain.handle('zd:displays:identify', (e) => (fromZ(e) && displays ? displays.identify() : { shown: 0 }));
   ipcMain.handle('zd:displays:settings', (e) => (fromZ(e) && displays ? displays.openSystemSettings() : { opened: false }));
+  // Extend, way A: Z's own window turns a whole Z on every extra display on or off (its Multiple displays choice).
+  ipcMain.handle('zd:desks:set', (e, on) => (fromMainZ(e) && desks && typeof on === 'boolean' ? desks.setEnabled(on) : false));
   // Extend: a one-time window name for one display (Z then calls window.open('', name)).
   ipcMain.handle('zd:displays:surface', (e, id) =>
-    fromZ(e) && surfaces && (typeof id === 'string' || typeof id === 'number') ? surfaces.prepare(String(id)) : null,
+    fromMainZ(e) && surfaces && (typeof id === 'string' || typeof id === 'number') ? surfaces.prepare(String(id)) : null,
   );
   // The main display: Z's own window (and its Dock) moves there; remembered on this computer.
   ipcMain.handle('zd:displays:main', (e, id) =>
-    fromZ(e) && surfaces && (typeof id === 'string' || typeof id === 'number') ? surfaces.moveMain(win, String(id)) : { ok: false },
+    fromMainZ(e) && surfaces && (typeof id === 'string' || typeof id === 'number') ? surfaces.moveMain(win, String(id)) : { ok: false },
   );
 }
 
@@ -510,6 +542,7 @@ function createWindow() {
     layout();
     tellZ();
     if (surfaces) surfaces.followFullScreen(true);
+    if (desks) desks.followFullScreen(true);
     checkFocus();
   });
   win.on('leave-full-screen', () => {
@@ -518,6 +551,7 @@ function createWindow() {
     layout();
     tellZ();
     if (surfaces) surfaces.followFullScreen(false);
+    if (desks && !(surfaces && surfaces.moving())) desks.followFullScreen(false);
     checkFocus();
   });
   win.on('focus', () => zView && !zView.webContents.isDestroyed() && zView.webContents.focus());
@@ -551,10 +585,15 @@ function createWindow() {
   zView.webContents.on('did-navigate-in-page', rememberZLanguage);
 
   // Z moved to another display: tell Z which display it is on now.
-  win.on('moved', () => displays && displays.changed());
+  win.on('moved', () => {
+    if (displays) displays.changed();
+    // The display Z's own window is on gets no extra Z; the one it left gets one.
+    if (desks) desks.sync();
+  });
   win.on('closed', () => {
     if (displays) displays.closeIdentify();
     if (surfaces) surfaces.closeAll();
+    if (desks) desks.closeAll();
     // Views are not closed with the window: close them, so nothing keeps running.
     for (const v of [zView, barView]) if (v && !v.webContents.isDestroyed()) v.webContents.close();
     win = null;
@@ -682,6 +721,24 @@ app.whenReady().then(() => {
   buildMenu();
   buildIconMenu();
   surfaces = createSurfaces({ screen, randomBytes, isMac, isWin: process.platform === 'win32', prefs, savePrefs });
+  desks = createDesks({
+    BrowserWindow,
+    screen,
+    isMac,
+    isWin: process.platform === 'win32',
+    webPreferences: (id) => secureWebPreferences(true, id),
+    startUrl: cfg.START_URL,
+    userAgent: userAgent(),
+    mainDisplayId,
+    // F11 on any display switches full screen for all of them (Z's own window leads).
+    onCreate: (w) =>
+      w.webContents.on('before-input-event', (event, input) => {
+        if (input.type === 'keyDown' && input.key === 'F11' && !input.alt && !input.control && !input.meta) {
+          event.preventDefault();
+          toggleFullscreen();
+        }
+      }),
+  });
   app.on('browser-window-focus', checkFocus);
   app.on('browser-window-blur', checkFocus);
   createWindow();

@@ -15,7 +15,7 @@ const test = (name, fn) => {
   }
 };
 
-for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js', 'src/autostart.js', 'src/displays.js', 'src/navGuard.js', 'src/surfaces.js']) {
+for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js', 'src/autostart.js', 'src/displays.js', 'src/navGuard.js', 'src/surfaces.js', 'src/desks.js']) {
   test(`syntax ${f}`, () => execFileSync(process.execPath, ['--check', f]));
 }
 
@@ -290,15 +290,21 @@ test('autostart: Windows registers with --autostart, Mac without arguments', () 
 // ---------- the page API: only these names, and the release name travels with the version ----------
 test('preload exposes only the full-screen, autostart, display and extend calls', () => {
   const src = readFileSyncSafe('src/preload.js');
-  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'"].includes(ch), ch);
-  assert.ok(/api: 3,/.test(src), 'api 3');
+  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'"].includes(ch), ch);
+  assert.ok(/api: 4,/.test(src), 'api 4');
   assert.ok(!/require\('(?!electron')/.test(src), 'preload requires only electron');
 });
 test('main checks every Z request comes from Z itself', () => {
   const src = readFileSyncSafe('src/main.js');
-  const handlers = src.match(/ipcMain\.handle\('zd:[a-z:]+', \([^)]*\) =>\s*\(?\s*fromZ\(e\)/g) || [];
+  const handlers = src.match(/ipcMain\.handle\('zd:[a-z:]+', \([^)]*\) =>\s*\(?\s*from(Main)?Z\(e\)/g) || [];
   assert.equal(handlers.length, (src.match(/ipcMain\.handle\(/g) || []).length);
-  assert.equal(handlers.length, 10);
+  assert.equal(handlers.length, 11);
+  // What only Z's own window decides: extend on/off, the one-time window names, the main display, autostart.
+  for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set']) {
+    assert.ok(new RegExp(`ipcMain\\.handle\\('${ch}', \\([^)]*\\) =>\\s*\\(?\\s*fromMainZ\\(e\\)`).test(src), ch);
+  }
+  // The Z on another display must be one of ours, its top frame, on Z's address.
+  assert.ok(/desks\.displayOf\(wc\) !== null && !!frame && frame === wc\.mainFrame && cfg\.isAppUrl\(frame\.url\)/.test(src));
 });
 
 // ---------- displays (layer 0): read only, numbers only, fixed system-settings targets ----------
@@ -546,6 +552,94 @@ test('main checks every Z request comes from Z itself', () => {
     assert.ok(src.includes("if (blank) return { action: 'deny' };"), 'every other blank window is refused');
     assert.ok(src.includes("zView.webContents.on('did-navigate', () => surfaces && surfaces.closeAll());"), 'a new page of Z closes them');
     assert.ok(src.includes("zView.webContents.on('render-process-gone', () => surfaces && surfaces.closeAll());"), 'a crashed Z closes them');
+  });
+}
+// ---------- extend, way A (api 4): a whole Z on every extra display ----------
+{
+  const { createDesks } = require('../src/desks.js');
+  const D = (id, x) => ({ id, bounds: { x, y: 0, width: 1920, height: 1080 }, workArea: { x, y: 0, width: 1920, height: 1040 } });
+  const made = [];
+  class FakeWin {
+    constructor(o) {
+      this.o = o; this.ev = {}; this.once_ = {}; this.destroyed = false; this.fs = false; this.simple = false; this.top = false; this.b = null; this.url = '';
+      this.webContents = { on() {}, setUserAgent: (u) => (this.ua = u), isDestroyed: () => this.destroyed, send() {} };
+      made.push(this);
+    }
+    isDestroyed() { return this.destroyed; }
+    destroy() { this.destroyed = true; (this.ev.closed || (() => {}))(); }
+    on(k, f) { this.ev[k] = f; }
+    once(k, f) { this.once_[k] = f; }
+    loadURL(u) { this.url = u; }
+    showInactive() { this.shown = true; }
+    setFullScreen(on) { this.fs = on; }
+    setSimpleFullScreen(on) { this.simple = on; }
+    setAlwaysOnTop(on) { this.top = on; }
+    setBounds(b) { this.b = b; }
+  }
+  const mk = (list, main, opts = {}) => createDesks({
+    BrowserWindow: FakeWin, screen: { getAllDisplays: () => list.v }, isMac: false, isWin: false,
+    webPreferences: (id) => ({ display: id }), startUrl: 'https://orvalen.me/', userAgent: 'ua', mainDisplayId: () => main.v, ...opts,
+  });
+  test('desks: off by default; on = a whole Z on every display but the main one', () => {
+    made.length = 0;
+    const list = { v: [D(1, 0), D(2, 1920), D(3, -1920)] };
+    const main = { v: '1' };
+    const d = mk(list, main);
+    d.sync();
+    assert.equal(d.count(), 0, 'off until Z turns it on');
+    d.setEnabled(true);
+    assert.equal(d.count(), 2);
+    assert.deepEqual(made.map((w) => w.o.webPreferences.display).sort(), ['2', '3']);
+    assert.ok(made.every((w) => w.url === 'https://orvalen.me/' && w.o.frame === false && w.o.show === false && w.o.skipTaskbar === true));
+    made[0].once_['ready-to-show']();
+    assert.ok(made[0].shown && made[0].fs, 'shown without focus, full screen like Z');
+    assert.equal(d.displayOf(made[0].webContents), String(made[0].o.webPreferences.display));
+    assert.equal(d.displayOf({}), null, 'a stranger web contents is not one of ours');
+    d.setEnabled(false);
+    assert.equal(d.count(), 0);
+    assert.ok(made.every((w) => w.destroyed));
+  });
+  test('desks: follows the displays and the main display; a window the person closed stays closed', () => {
+    made.length = 0;
+    const list = { v: [D(1, 0), D(2, 1920)] };
+    const main = { v: '1' };
+    const d = mk(list, main);
+    d.setEnabled(true);
+    assert.equal(made.length, 1);
+    main.v = '2';
+    d.sync();
+    assert.ok(made[0].destroyed, 'Z moved there: that display needs no extra Z');
+    assert.equal(made[1].o.webPreferences.display, '1', 'the display it left gets one');
+    made[1].destroy();
+    d.sync();
+    assert.equal(d.count(), 0, 'closed by the person: stays closed');
+    list.v = [D(2, 1920)];
+    d.sync();
+    list.v = [D(1, 0), D(2, 1920)];
+    d.sync();
+    assert.equal(d.count(), 1, 'the display came back: a new Z');
+    d.closeAll();
+  });
+  test('desks: full screen together, above the taskbar only while Z has the focus; Windows keeps the taskbar entry', () => {
+    made.length = 0;
+    const list = { v: [D(1, 0), D(2, 1920)] };
+    const d = mk(list, { v: '1' });
+    d.setEnabled(true);
+    const w = made[0];
+    w.once_['ready-to-show']();
+    d.setActive(true);
+    assert.ok(w.top);
+    d.followFullScreen(false);
+    assert.ok(!w.fs && !w.top);
+    assert.deepEqual(w.b, { x: 1920, y: 0, width: 1920, height: 1040 });
+    d.followFullScreen(true);
+    assert.ok(w.fs && w.top);
+    d.closeAll();
+    made.length = 0;
+    const win = mk(list, { v: '1' }, { isWin: true });
+    win.setEnabled(true);
+    assert.equal(made[0].o.skipTaskbar, false);
+    win.closeAll();
   });
 }
 test('navigation: the top stays on Z, frames inside Z follow their own redirects', () => {
