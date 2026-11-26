@@ -9,8 +9,8 @@ func zDirCandidates(uninstallLoc, softwareLoc, displayIcon, uninstallString stri
 	var out []string
 	add := func(d string) {
 		d = strings.TrimRight(strings.TrimSpace(d), `\/`)
-		if d == "" {
-			return
+		if !winAbs(d) {
+			return // a relative folder would resolve against wherever Z Setup was started from
 		}
 		for _, o := range out {
 			if strings.EqualFold(o, d) {
@@ -55,4 +55,13 @@ func winDir(p string) string {
 		return ""
 	}
 	return p[:i]
+}
+
+// winAbs: a full Windows path, `C:\…` or `\\server\…`.
+func winAbs(p string) bool {
+	if strings.HasPrefix(p, `\\`) {
+		return len(p) > 2
+	}
+	return len(p) >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/') &&
+		((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z'))
 }

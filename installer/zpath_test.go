@@ -21,6 +21,9 @@ func TestZDirCandidates(t *testing.T) {
 		{"location first, others kept", `D:\Z\`, "", dir + `\Z.exe,0`, "", []string{`D:\Z`, dir}},
 		{"case-insensitive duplicates", dir, `c:\users\o\appdata\local\programs\z`, "", "", []string{dir}},
 		{"nothing", "", "", "", "", nil},
+		{"relative icon ignored", "", "", `Z\Z.exe,0`, "", nil},
+		{"drive without folder ignored", `C:`, "", "", "", nil},
+		{"network share", `\\srv\apps\Z`, "", "", "", []string{`\\srv\apps\Z`}},
 		{"broken quote", "", "", "", `"C:\x`, nil},
 	}
 	for _, c := range cases {
