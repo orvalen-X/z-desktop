@@ -7,9 +7,11 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -117,7 +119,7 @@ func (a *app) start() {
 			Client:  NewClient(),
 			Latest:  releaseLatest,
 			WorkDir: filepath.Join(a.workDir, "dl"),
-			Sys:     &winSys{onTick: a.progress},
+			Sys:     &winSys{onTick: a.progress, log: a.logf},
 			Report:  a.progress,
 			Now:     time.Now,
 		}
@@ -125,30 +127,40 @@ func (a *app) start() {
 		if ctx.Err() != nil {
 			return
 		}
+		if err != nil {
+			a.logf("failed: %v", err)
+		}
 		var f *Failure
 		if errors.As(err, &f) {
-			a.eval("zs.fail(" + jsString(f.Kind) + ")")
+			a.eval("zs.fail(" + jsString(f.Kind) + "," + jsString(short(f.Err.Error())) + ")")
 			return
 		}
 		if err != nil {
-			a.eval("zs.fail('bad')")
+			a.eval("zs.fail('bad'," + jsString(short(err.Error())) + ")")
 			return
 		}
 		a.finish()
 	}()
 }
 
-// finish opens Z with the person's "start with the computer" choice and closes Z Setup after the fade.
+// finish opens Z with the person's "start with the computer" choice, keeps the "ready" screen up until Z's own
+// window is on the screen (so there is no empty moment in between), then closes Z Setup.
 func (a *app) finish() {
 	a.mu.Lock()
 	on := a.autostart
 	a.mu.Unlock()
 	a.eval("zs.ready()")
 	exe := waitForInstalledZ(10 * time.Second)
-	if exe != "" {
-		_ = launchZ(exe, on)
+	if exe == "" {
+		a.logf("installed, but Z.exe was not found")
+	} else if err := launchZ(exe, on); err != nil {
+		a.logf("could not open Z: %v", err)
+	} else if !waitForZWindow(exe, 60*time.Second) {
+		a.logf("Z started, but its window did not appear within 60s")
+	} else {
+		a.logf("Z is open")
 	}
-	time.Sleep(2200 * time.Millisecond)
+	time.Sleep(600 * time.Millisecond) // Z's window is drawn; let ours fade out over it
 	a.close()
 }
 
@@ -185,6 +197,29 @@ func (a *app) close() {
 	a.quitting = true
 	a.mu.Unlock()
 	a.w.Dispatch(func() { a.w.Terminate() })
+}
+
+// logf keeps a short record in %TEMP%\ZSetup\setup.log, so a failure on someone's computer can be explained.
+func (a *app) logf(format string, args ...any) {
+	path := filepath.Join(a.workDir, "setup.log")
+	if st, err := os.Stat(path); err == nil && st.Size() > 256<<10 {
+		_ = os.Remove(path) // keep it small: only the latest runs matter
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s %s\n", time.Now().Format(time.RFC3339), fmt.Sprintf(format, args...))
+}
+
+// short keeps the window's detail line to one readable line.
+func short(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > 140 {
+		s = string(r[:140]) + "…"
+	}
+	return s
 }
 
 func jsString(s string) string { b, _ := json.Marshal(s); return string(b) }

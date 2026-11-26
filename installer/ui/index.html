@@ -113,6 +113,7 @@ button:focus-visible{outline:2px solid var(--or);outline-offset:2px}
   border:1px solid var(--hair);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:6px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.25);animation:rise .6s cubic-bezier(.2,.8,.2,1)}
 .msg .e{font-size:11.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--or)}
 [dir="rtl"] .msg .e{letter-spacing:0;font-size:12.5px}
+.msg .det{margin:6px 0 0;font:11px/1.4 ui-monospace,Consolas,monospace;color:var(--ink2);opacity:.8;direction:ltr;unicode-bidi:plaintext;word-break:break-word}
 .win[data-tone="bad"] .msg .e{color:var(--bad)} .win[data-tone="warn"] .msg .e{color:var(--ink2)}
 .msg h2{margin:0;font-size:21px;line-height:1.2;text-wrap:balance}
 .msg p{margin:0;font-size:13.5px;line-height:1.5;color:var(--ink2)}
@@ -144,7 +145,7 @@ body{padding:0;background:var(--w0)}
   <div class="chrome"><button id="bMin" aria-label="Minimize">–</button><button id="bClose" aria-label="Close">✕</button></div>
   <div class="gauge" id="gauge" role="status" aria-live="polite"><span class="n" id="pct" dir="ltr"></span></div>
   <div class="m" id="mline" role="status" aria-live="polite"></div>
-  <div class="msg" id="msg" hidden><div class="e" id="mE"></div><h2 id="mH"></h2><p id="mP"></p><div class="acts" id="mActs"></div></div>
+  <div class="msg" id="msg" hidden><div class="e" id="mE"></div><h2 id="mH"></h2><p id="mP"></p><p class="det" id="mD" hidden></p><div class="acts" id="mActs"></div></div>
   <div class="foot" id="foot"><label class="auto" id="autoL"><input type="checkbox" id="autoStart"><span class="box" aria-hidden="true"></span><span id="autoTxt"></span></label><span class="nums" id="nums"></span><button class="btn ghost" id="cancel"></button></div>
 </div>
 <script>
@@ -157,6 +158,7 @@ en:{dir:"ltr",name:"English",
  rdE:"Ready",rdH:"Z is ready",rdP:"Opening your desktop.",
  offE:"No connection",offH:"The connection dropped",offP:"What's already downloaded is kept. Z Setup continues from there.",
  badE:"Stopped",badH:"This file didn't pass the check",badP:"Nothing was installed. Download Z Setup again from orvalen-official.com.",
+ instE:"Not finished",instH:"The installation didn't finish",instP:"A security program may have stopped it. The file was checked and kept, so trying again is quick.",
  haveE:"Already installed",haveH:"Z is already here",haveP:"Open it, or repair the installation if something isn't working.",
  frE:"First start",frH:"What Z apps may use",frP:"Every Z app asks before using any of these. Change them any time in Z Settings.",
  lnxE:"Linux",lnxH:"Add Z to your apps",lnxP:"Z appears in your apps menu with its icon, and updates itself.",
@@ -173,6 +175,7 @@ he:{dir:"rtl",name:"עברית",
  rdE:"מוכן",rdH:"Z מוכנה",rdP:"פותחים את שולחן העבודה.",
  offE:"אין חיבור",offH:"החיבור נקטע",offP:"מה שכבר ירד נשמר, וההורדה תמשיך משם.",
  badE:"נעצר",badH:"הקובץ לא עבר את הבדיקה",badP:"שום דבר לא הותקן. אפשר להוריד שוב את התקנת Z מ-orvalen-official.com.",
+ instE:"לא הסתיים",instH:"ההתקנה לא הסתיימה",instP:"ייתכן שתוכנת אבטחה עצרה אותה. הקובץ נבדק ונשמר, ואפשר לנסות שוב.",
  haveE:"כבר מותקן",haveH:"Z כבר כאן",haveP:"אפשר לפתוח אותה, או לתקן את ההתקנה אם משהו לא עובד.",
  frE:"פתיחה ראשונה",frH:"במה האפליקציות ב-Z יוכלו להשתמש",frP:"כל אפליקציה ב-Z שואלת לפני שימוש באחד מאלה. אפשר לשנות בכל רגע בהגדרות Z.",
  lnxE:"Linux",lnxH:"להוסיף את Z לאפליקציות",lnxP:"Z תופיע בתפריט האפליקציות עם האייקון שלה ותתעדכן לבד.",
@@ -189,6 +192,7 @@ es:{dir:"ltr",name:"Español",
  rdE:"Listo",rdH:"Z está listo",rdP:"Abriendo tu escritorio.",
  offE:"Sin conexión",offH:"Se perdió la conexión",offP:"Lo ya descargado se guarda y la descarga sigue desde ahí.",
  badE:"Detenido",badH:"El archivo no pasó la comprobación",badP:"No se instaló nada. Descarga de nuevo el instalador desde orvalen-official.com.",
+ instE:"Sin terminar",instH:"La instalación no terminó",instP:"Puede que un programa de seguridad la haya detenido. El archivo se comprobó y se guardó, así que reintentar es rápido.",
  haveE:"Ya instalado",haveH:"Z ya está aquí",haveP:"Ábrelo o repara la instalación si algo no funciona.",
  frE:"Primer inicio",frH:"Lo que las apps de Z podrán usar",frP:"Cada app de Z pregunta antes de usar algo de esto. Cámbialo cuando quieras en Ajustes de Z.",
  lnxE:"Linux",lnxH:"Añadir Z a tus apps",lnxP:"Z aparece en el menú de apps con su icono y se actualiza solo.",
@@ -205,6 +209,7 @@ ar:{dir:"rtl",name:"العربية",
  rdE:"جاهزة",rdH:"Z جاهزة",rdP:"نفتح سطح مكتبك.",
  offE:"لا يوجد اتصال",offH:"انقطع الاتصال",offP:"ما تم تنزيله محفوظ، وسيكمل التنزيل من حيث توقف.",
  badE:"توقّف",badH:"لم يجتز الملف التحقق",badP:"لم يُثبَّت أي شيء. نزّل مثبّت Z مجددًا من orvalen-official.com.",
+ instE:"لم يكتمل",instH:"لم يكتمل التثبيت",instP:"ربما أوقفه برنامج حماية. تم التحقق من الملف وحفظه، لذا ستكون المحاولة مجددًا سريعة.",
  haveE:"مثبّتة مسبقًا",haveH:"Z موجودة هنا",haveP:"افتحها، أو أصلح التثبيت إذا كان هناك خلل.",
  frE:"التشغيل الأول",frH:"ما يمكن لتطبيقات Z استخدامه",frP:"كل تطبيق في Z يسأل قبل استخدام أي من هذه. غيّرها متى شئت من إعدادات Z.",
  lnxE:"Linux",lnxH:"أضف Z إلى تطبيقاتك",lnxP:"تظهر Z في قائمة التطبيقات بأيقونتها وتُحدّث نفسها.",
@@ -221,6 +226,7 @@ ru:{dir:"ltr",name:"Русский",
  rdE:"Готово",rdH:"Z готова",rdP:"Открываем рабочий стол.",
  offE:"Нет соединения",offH:"Соединение прервалось",offP:"Загруженное сохранено, загрузка продолжится с того же места.",
  badE:"Остановлено",badH:"Файл не прошёл проверку",badP:"Ничего не установлено. Скачайте установщик Z заново на orvalen-official.com.",
+ instE:"Не завершено",instH:"Установка не завершилась",instP:"Возможно, её остановила защитная программа. Файл проверен и сохранён, повтор займёт немного времени.",
  haveE:"Уже установлено",haveH:"Z уже здесь",haveP:"Откройте её или восстановите установку, если что-то не работает.",
  frE:"Первый запуск",frH:"Что смогут использовать приложения Z",frP:"Каждое приложение Z спрашивает перед использованием. Изменить можно в любой момент в настройках Z.",
  lnxE:"Linux",lnxH:"Добавить Z в приложения",lnxP:"Z появится в меню приложений со своим значком и будет обновляться сама.",
@@ -242,7 +248,7 @@ const M={
  ru:["Начинаем. Z уже в пути.","Загружаем Z для вас.","Треть пути позади. Продолжаем.","Больше половины!","Загрузка почти завершена.","Проверяем, что всё дошло целым и безопасным.","Устанавливаем файлы на ваш компьютер.","Готовим ваш рабочий стол.","Всё готово. Добро пожаловать в Z!"]};
 
 /* The real Z Setup (approved sketch 2, O 26.11). The Go side drives it:
-   zs.init({lang, installed}) once, then zs.progress({phase, p, done, total, secs}), zs.fail(kind), zs.ready().
+   zs.init({lang, installed}) once, then zs.progress({phase, p, done, total, secs}), zs.fail(kind, detail), zs.ready().
    It calls back: zsStart, zsRetry, zsCancel, zsClose, zsMin, zsDrag, zsAutostart(on), zsOpen, zsRepair. */
 const S={lang:"en",ph:"wel",p:0,shown:0,done:0,total:0,secs:0,mi:-1,open:false};
 const $=id=>document.getElementById(id), win=$("win");
@@ -259,14 +265,15 @@ function btn(label,cls,fn){const b=document.createElement("button");b.className=
 function mb(n){return (n/1048576).toFixed(n<10485760?1:0)}
 function texts(){
  const L=T[S.lang],k=S.ph;document.documentElement.lang=S.lang;document.documentElement.dir=L.dir;win.dir=L.dir;
- win.dataset.tone=k==="off"?"warn":k==="bad"?"bad":"";if(!win.dataset.tone)delete win.dataset.tone;
+ win.dataset.tone=k==="off"?"warn":(k==="bad"||k==="inst")?"bad":"";if(!win.dataset.tone)delete win.dataset.tone;
  $("cancel").textContent=L.cancel;$("autoTxt").textContent=A[S.lang];
  $("bMin").setAttribute("aria-label",L.later);$("bClose").setAttribute("aria-label",L.close);
- const m=["off","bad","have"].includes(k);$("msg").hidden=!m;$("cancel").hidden=m||k==="vf"||k==="in"||k==="rd";
+ const m=["off","bad","inst","have"].includes(k);$("mD").hidden=!(k==="bad"||k==="inst")||!S.det;$("mD").textContent=S.det||"";$("msg").hidden=!m;$("cancel").hidden=m||k==="vf"||k==="in"||k==="rd";
  $("gauge").hidden=k==="have";$("autoL").hidden=m;$("mline").hidden=m||k==="have";S.mi=-1;
  if(m){$("mE").textContent=L[k+"E"];$("mH").textContent=L[k+"H"];$("mP").textContent=L[k+"P"];const a=$("mActs");a.textContent="";
   if(k==="off")a.append(btn(L.cancel,"ghost",()=>call("zsCancel")),btn(L.retry,"pri",()=>{S.ph="dl";texts();call("zsRetry")}));
   else if(k==="bad")a.append(btn(L.close,"pri",()=>call("zsClose")));
+  else if(k==="inst")a.append(btn(L.close,"ghost",()=>call("zsClose")),btn(L.retry,"pri",()=>{S.ph="in";S.det="";texts();call("zsRetry")}));
   else a.append(btn(L.repair,"",()=>{S.ph="wel";S.p=S.shown=0;texts();call("zsRepair")}),btn(L.open,"pri",()=>call("zsOpen")));}
  numbers();}
 function numbers(){const L=T[S.lang],k=S.ph,p=S.shown;win.style.setProperty("--p",p.toFixed(4));
@@ -285,7 +292,7 @@ window.zs={
  init(o){S.lang=T[o.lang]?o.lang:"en";$("autoStart").checked=!!o.autostart;
   if(o.installed){S.ph="have";S.p=S.shown=1;texts();}else{S.ph="wel";texts();call("zsStart");}},
  progress(o){const changed=o.phase!==S.ph;S.ph=o.phase;S.p=Math.max(S.p,o.p||0);S.done=o.done||S.done;S.total=o.total||S.total;S.secs=o.secs||0;if(changed)texts();else numbers();},
- fail(kind){S.ph=kind==="off"?"off":"bad";texts();},
+ fail(kind,detail){S.ph=["off","inst"].includes(kind)?kind:"bad";S.det=typeof detail==="string"?detail.slice(0,160):"";texts();},
  ready(){S.ph="rd";S.p=1;texts();setTimeout(()=>{S.shown=1;numbers();win.classList.add("full")},900);}
 };
 texts();requestAnimationFrame(tick);
