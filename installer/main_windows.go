@@ -127,13 +127,16 @@ func (a *app) start() {
 		if ctx.Err() != nil {
 			return
 		}
+		if err != nil {
+			a.logf("failed: %v", err)
+		}
 		var f *Failure
 		if errors.As(err, &f) {
-			a.eval("zs.fail(" + jsString(f.Kind) + ")")
+			a.eval("zs.fail(" + jsString(f.Kind) + "," + jsString(short(f.Err.Error())) + ")")
 			return
 		}
 		if err != nil {
-			a.eval("zs.fail('bad')")
+			a.eval("zs.fail('bad'," + jsString(short(err.Error())) + ")")
 			return
 		}
 		a.finish()

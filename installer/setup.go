@@ -415,6 +415,8 @@ func (fl *Flow) Install(ctx context.Context, path, version string) error {
 	if wait <= 0 {
 		wait = 30 * time.Second
 	}
+	// A repair of the version that is already there cannot be told apart that way: then only a clean start counts.
+	already := fl.Sys.Installed(version)
 	var err error
 	for try := 1; try <= installTries; try++ {
 		if err = fl.Sys.RunInstaller(ctx, path); err == nil {
@@ -423,7 +425,15 @@ func (fl *Flow) Install(ctx context.Context, path, version string) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if fl.waitInstalled(ctx, version, wait) {
+		if already {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(wait / 3):
+			}
+			continue
+		}
+		if !already && fl.waitInstalled(ctx, version, wait) {
 			err = nil
 			break
 		}
