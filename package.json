@@ -14,6 +14,7 @@
     "check": "node scripts/check.mjs",
     "dist": "electron-builder --publish never",
     "dist:linux": "electron-builder --linux --publish never",
+    "dist:setup": "node scripts/build-setup.mjs",
     "dist:win": "electron-builder --win nsis-web --x64 --arm64 --publish never && electron-builder --win nsis --x64 --publish never -c.directories.output=dist-full && node scripts/collect-windows.mjs",
     "dist:mac": "electron-builder --mac --publish never"
   },

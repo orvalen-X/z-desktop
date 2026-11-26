@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<title>Z</title>
+<style>
+/* Layout: sketch board, then ONE window with no columns and no bar. The window itself is the vessel:
+   the Tide rises across its full width, burning bright inside a window-height Z. The percent and one app at a time
+   ride the waterline like a gauge and a buoy. When the tide reaches the top, the window opens into Z. */
+:root{
+  --board:#dfe4e9; --strip:#ffffff; --strip-ink:#36404a; --rule:#cfd6dd;
+  --w0:#f3f4f6; --w1:#ffffff; --ink:#14161a; --ink2:#535b66; --ink3:#8b939d; --hair:rgba(20,22,26,.10);
+  --or:#cf5a00; --sea-a:rgba(255,120,11,.30); --sea-b:rgba(255,154,61,.16); --edge:rgba(20,22,26,.30); --hollow:rgba(20,22,26,.045);
+  --grey-rgb:120,130,140; --bad:#be342a; --card:rgba(255,255,255,.78);
+  --desk-a:#9fb4c4; --desk-b:#dfe7ee; --shadow:0 40px 90px rgba(20,35,50,.35),0 0 0 1px rgba(16,22,27,.10);
+  --font:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --board:#06080a; --strip:#0f1317; --strip-ink:#c2ccd4; --rule:#222a31;
+  --w0:#0c0c0e; --w1:#26272c; --ink:#f2f2f5; --ink2:#a4a8b0; --ink3:#666b74; --hair:rgba(255,255,255,.10);
+  --or:#ff8a2a; --sea-a:rgba(255,120,11,.26); --sea-b:rgba(255,154,61,.12); --edge:rgba(255,255,255,.26); --hollow:rgba(255,255,255,.045);
+  --grey-rgb:150,160,170; --bad:#ff786c; --card:rgba(20,20,24,.72);
+  --desk-a:#0e1820; --desk-b:#1d2c38; --shadow:0 40px 100px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.08); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --board:#06080a; --strip:#0f1317; --strip-ink:#c2ccd4; --rule:#222a31;
+  --w0:#0c0c0e; --w1:#26272c; --ink:#f2f2f5; --ink2:#a4a8b0; --ink3:#666b74; --hair:rgba(255,255,255,.10);
+  --or:#ff8a2a; --sea-a:rgba(255,120,11,.26); --sea-b:rgba(255,154,61,.12); --edge:rgba(255,255,255,.26); --hollow:rgba(255,255,255,.045);
+  --grey-rgb:150,160,170; --bad:#ff786c; --card:rgba(20,20,24,.72);
+  --desk-a:#0e1820; --desk-b:#1d2c38; --shadow:0 40px 100px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.08); color-scheme:dark}
+:root[data-theme="light"]{color-scheme:light}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--board);color:var(--ink);font-family:var(--font);margin:0;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:18px 48px}
+.board{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.strip{background:var(--strip);border:1px solid var(--rule);border-radius:12px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;color:var(--strip-ink)}
+.grp{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.grp>span{color:var(--ink3);font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin-inline-end:4px}
+.chip{border:1px solid var(--rule);background:transparent;color:var(--strip-ink);border-radius:999px;padding:4px 11px;font:inherit;font-size:12.5px;line-height:1.4;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--w0)}
+button:focus-visible{outline:2px solid var(--or);outline-offset:2px}
+.note{font-size:12.5px;color:var(--ink2);margin:0;max-width:90ch}
+.stage{position:relative;border-radius:16px;overflow:hidden;display:grid;place-items:center;padding:40px 20px;min-height:660px;
+  background:radial-gradient(90% 70% at 20% 10%,var(--desk-b),transparent 60%),radial-gradient(80% 80% at 90% 100%,var(--desk-b),transparent 55%),var(--desk-a)}
+
+/* ---------- The window = the vessel ---------- */
+.win{position:relative;width:min(900px,100%);aspect-ratio:900/560;container-type:size;overflow:hidden;border-radius:20px;box-shadow:var(--shadow);
+  background:radial-gradient(90% 70% at 50% 0%,var(--w1),var(--w0) 62%);color:var(--ink);
+  --p:0;--zs:84cqh;--zt:1cqh;--zl:calc(50cqw - 42cqh);--lvl:calc(var(--zt) + var(--zs) * (.87 - .74 * var(--p)));
+  transition:width .9s cubic-bezier(.2,.8,.2,1),border-radius .9s}
+.sea,.zfill{position:absolute;overflow:hidden}
+.sea{inset:0;display:none}
+.buoy{display:none!important}
+.wave{position:absolute;top:0;width:200cqw;height:130cqh;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http%3A//www.w3.org/2000/svg' viewBox='0 0 200 100' preserveAspectRatio='none'%3E%3Cpath d='M0 5Q25 0 50 5T100 5T150 5T200 5V100H0Z'/%3E%3C/svg%3E") 0 0 / 50% 100% repeat-x;mask:url("data:image/svg+xml,%3Csvg xmlns='http%3A//www.w3.org/2000/svg' viewBox='0 0 200 100' preserveAspectRatio='none'%3E%3Cpath d='M0 5Q25 0 50 5T100 5T150 5T200 5V100H0Z'/%3E%3C/svg%3E") 0 0 / 50% 100% repeat-x;animation:wave 3.4s linear infinite;transition:translate .3s ease-out,opacity .9s}
+.wave.back{animation-duration:5.3s;animation-direction:reverse}
+.sea .wave{left:0;translate:0 calc(var(--lvl) - 3cqh)}
+.sea .back{background:var(--sea-b);translate:0 calc(var(--lvl) - 5cqh)}
+.sea .front{background:linear-gradient(var(--sea-a),transparent 90%)}
+/* the Z: window-height, the same mark as Tide; inside it the same water burns bright */
+.zfill{left:var(--zl);top:var(--zt);width:var(--zs);height:var(--zs);background:var(--hollow);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http%3A//www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='14,14 86,14 86,27 37,73 86,73 86,86 14,86 14,73 63,27 14,27'/%3E%3C/svg%3E") center / contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http%3A//www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='14,14 86,14 86,27 37,73 86,73 86,86 14,86 14,73 63,27 14,27'/%3E%3C/svg%3E") center / contain no-repeat}
+.zfill .wave{left:calc(-1 * var(--zl));translate:0 calc(var(--lvl) - var(--zt) - 3cqh)}
+.zfill .back{background:#ff9a3d;opacity:.5;translate:0 calc(var(--lvl) - var(--zt) - 5cqh)}
+.zfill .front{background:linear-gradient(#ffc083,#ff780b 30%,#c94b00 85%)}
+.zedge{position:absolute;left:var(--zl);top:var(--zt);width:var(--zs);height:var(--zs);background:var(--edge);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http%3A//www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon fill='none' stroke='black' stroke-width='.7' stroke-linejoin='round' points='14,14 86,14 86,27 37,73 86,73 86,86 14,86 14,73 63,27 14,27'/%3E%3C/svg%3E") center / contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http%3A//www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon fill='none' stroke='black' stroke-width='.7' stroke-linejoin='round' points='14,14 86,14 86,27 37,73 86,73 86,86 14,86 14,73 63,27 14,27'/%3E%3C/svg%3E") center / contain no-repeat}
+.glow{position:absolute;left:50%;top:calc(var(--lvl));width:90cqh;height:90cqh;translate:-50% -50%;border-radius:50%;pointer-events:none;
+  background:radial-gradient(closest-side,rgba(255,120,11,.16),transparent 70%);animation:glow 4.8s ease-in-out infinite;transition:top .3s ease-out}
+@keyframes wave{to{transform:translateX(-50%)}}
+@keyframes glow{0%,100%{opacity:.55}50%{opacity:1}}
+.win[data-tone="warn"] :is(.sea,.zfill,.glow){filter:grayscale(1)}
+.win[data-tone="bad"] :is(.sea,.zfill,.glow){filter:hue-rotate(-24deg) saturate(1.5) brightness(.85)}
+.win[data-tone] .wave{animation-play-state:paused}
+.win.full .sea .wave{opacity:1;background:linear-gradient(#ffc083,#ff780b 30%,#c94b00 85%)}
+
+/* things that ride the waterline */
+.gauge,.buoy{position:absolute;transition:top .3s ease-out,opacity .5s}
+.gauge{inset-inline-start:6cqw;top:50%;translate:0 -50%;display:flex;flex-direction:column;gap:2px}
+.gauge .n{font-family:"Segoe UI Variable Display","Segoe UI Light","Segoe UI",var(--font);font-weight:200;font-size:clamp(44px,13cqh,80px);line-height:1;letter-spacing:.01em;font-variant-numeric:tabular-nums}
+.gauge .w{font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--or)}
+[dir="rtl"] .gauge .w{letter-spacing:0;font-size:13px}
+.gauge .w{display:none!important}
+.gauge{max-width:24cqw}
+.m{position:absolute;inset-inline:6cqw;top:calc(var(--zt) + var(--zs) * .86 + 2.8cqh);text-align:center;font-size:17px;line-height:1.4;font-weight:500;color:var(--ink);z-index:4;text-wrap:balance}
+.m.swap{animation:rise .6s cubic-bezier(.2,.8,.2,1)}
+.win.full .m{opacity:0;transition:opacity .5s}
+.buoy{inset-inline-end:4.5cqw;top:clamp(7cqh,calc(var(--lvl) - 21cqh),52cqh);width:min(24cqw,210px);display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+.buoy .tile{width:min(13cqw,112px);aspect-ratio:1;border-radius:22.5%;object-fit:cover;box-shadow:0 18px 40px rgba(0,0,0,.4),0 0 0 1px rgba(255,255,255,.14);animation:bob 4.2s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-7px) rotate(3deg)}}
+.buoy .cap{background:var(--card);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--hair);border-radius:12px;padding:8px 12px}
+.buoy h3{margin:0;font-size:16px;font-weight:700;font-family:var(--font)}
+.buoy p{margin:2px 0 0;font-size:12.5px;line-height:1.4;color:var(--ink2)}
+.buoy.swap .tile,.buoy.swap .cap{animation:rise .7s cubic-bezier(.2,.8,.2,1)}
+@keyframes rise{from{opacity:0;transform:translateY(26px) scale(.9)}to{opacity:1;transform:none}}
+
+.win,.win *{user-select:none;-webkit-user-select:none;-webkit-user-drag:none}
+.chrome{position:absolute;top:8px;inset-inline-end:8px;display:flex;gap:2px;z-index:6}
+.chrome button{width:34px;height:28px;border:0;background:transparent;color:var(--ink3);border-radius:8px;font-size:14px;cursor:pointer}
+.chrome button:hover{background:var(--hair);color:var(--ink)}
+.mark{position:absolute;top:14px;inset-inline-start:18px;font-size:11px;letter-spacing:.16em;color:var(--ink3);font-family:var(--font)}
+.foot{position:absolute;bottom:12px;inset-inline:18px;display:flex;justify-content:space-between;align-items:center;gap:10px;z-index:5}
+.nums{font-size:12.5px;color:var(--ink);opacity:.8;font-variant-numeric:tabular-nums}
+.auto{display:flex;align-items:center;gap:9px;font-size:13.5px;cursor:pointer;margin-inline-end:auto;color:var(--ink)}
+.auto input{position:absolute;opacity:0;width:1px;height:1px}
+.auto .box{flex:none;width:20px;height:20px;border-radius:6px;border:1.5px solid #ff780b;display:grid;place-items:center;transition:background .2s,border-color .2s}
+.auto .box::after{content:"";width:10px;height:6px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px) scale(0);transition:transform .2s}
+.auto input:checked+.box{background:#ff780b;border-color:#ff780b}
+.auto input:checked+.box::after{transform:rotate(-45deg) translate(1px,-1px) scale(1)}
+.auto input:focus-visible+.box{outline:2px solid var(--or);outline-offset:2px}
+.btn{font:inherit;font-size:13.5px;border-radius:10px;padding:8px 16px;border:1px solid var(--hair);background:var(--card);color:var(--ink);cursor:pointer;backdrop-filter:blur(10px)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--ink);opacity:.75}
+.btn.pri{background:var(--ink);border-color:var(--ink);color:var(--w0);font-weight:600}
+.msg{position:absolute;left:50%;bottom:9cqh;translate:-50% 0;width:min(430px,88cqw);z-index:5;background:var(--card);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  border:1px solid var(--hair);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:6px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.25);animation:rise .6s cubic-bezier(.2,.8,.2,1)}
+.msg .e{font-size:11.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--or)}
+[dir="rtl"] .msg .e{letter-spacing:0;font-size:12.5px}
+.win[data-tone="bad"] .msg .e{color:var(--bad)} .win[data-tone="warn"] .msg .e{color:var(--ink2)}
+.msg h2{margin:0;font-size:21px;line-height:1.2;text-wrap:balance}
+.msg p{margin:0;font-size:13.5px;line-height:1.5;color:var(--ink2)}
+.msg .acts{display:flex;gap:8px;justify-content:center;margin-top:8px;flex-wrap:wrap}
+
+.desk{position:absolute;inset:0;z-index:8;opacity:0;pointer-events:none;background:#14161d;transition:opacity 1s ease .5s}
+.desk img{width:100%;height:100%;object-fit:cover;transform:scale(1.12);transition:transform 1.9s cubic-bezier(.2,.8,.2,1) .4s}
+.win.open{width:100%;border-radius:10px}
+.win.open .desk{opacity:1}.win.open .desk img{transform:none}
+.win.full :is(.gauge,.buoy,.foot,.mark){opacity:0}
+
+@media (prefers-reduced-motion:reduce){.wave,.glow,.buoy .tile,.buoy.swap .tile,.buoy.swap .cap,.msg{animation:none}.win,.desk,.desk img,.wave,.gauge,.buoy{transition:none}}
+
+/* the real window: the vessel is the whole window (Windows draws the rounded corners and shadow) */
+html,body{margin:0;height:100%;overflow:hidden}
+body{padding:0;background:var(--w0)}
+.win{width:100vw;height:100vh;aspect-ratio:auto;border-radius:0;box-shadow:none;transition:none}
+.drag{position:absolute;inset:0 0 auto 0;height:44px;z-index:5}
+.win.full{transition:opacity .9s ease .4s;opacity:0}
+</style>
+</head>
+<body>
+<div class="win" id="win">
+  <div class="glow"></div>
+  <div class="zfill" role="img" aria-label="Z"><i class="wave back"></i><i class="wave front"></i></div>
+  <div class="zedge"></div>
+  <div class="drag" id="drag"></div>
+  <div class="mark">Z BY ORVALEN</div>
+  <div class="chrome"><button id="bMin" aria-label="Minimize">–</button><button id="bClose" aria-label="Close">✕</button></div>
+  <div class="gauge" id="gauge" role="status" aria-live="polite"><span class="n" id="pct" dir="ltr"></span></div>
+  <div class="m" id="mline" role="status" aria-live="polite"></div>
+  <div class="msg" id="msg" hidden><div class="e" id="mE"></div><h2 id="mH"></h2><p id="mP"></p><div class="acts" id="mActs"></div></div>
+  <div class="foot" id="foot"><label class="auto" id="autoL"><input type="checkbox" id="autoStart"><span class="box" aria-hidden="true"></span><span id="autoTxt"></span></label><span class="nums" id="nums"></span><button class="btn ghost" id="cancel"></button></div>
+</div>
+<script>
+const T={
+en:{dir:"ltr",name:"English",
+ welE:"Z by Orvalen",welH:"Z is on its way",welP:"No questions, no admin password. Just a moment.",
+ dlE:"Downloading",dlH:"Bringing Z to you",dlP:"Meanwhile, meet what's waiting inside.",
+ vfE:"Checking",vfH:"Making sure it's really Z",vfP:"Checking the file's fingerprint and Orvalen's signature.",
+ inE:"Installing",inH:"Almost there",inP:"Putting Z in place on this computer.",
+ rdE:"Ready",rdH:"Z is ready",rdP:"Opening your desktop.",
+ offE:"No connection",offH:"The connection dropped",offP:"What's already downloaded is kept. Z Setup continues from there.",
+ badE:"Stopped",badH:"This file didn't pass the check",badP:"Nothing was installed. Download Z Setup again from orvalen-official.com.",
+ haveE:"Already installed",haveH:"Z is already here",haveP:"Open it, or repair the installation if something isn't working.",
+ frE:"First start",frH:"What Z apps may use",frP:"Every Z app asks before using any of these. Change them any time in Z Settings.",
+ lnxE:"Linux",lnxH:"Add Z to your apps",lnxP:"Z appears in your apps menu with its icon, and updates itself.",
+ cancel:"Cancel",retry:"Try again",close:"Close",open:"Open Z",repair:"Repair",later:"Later",done:"Continue to Z",add:"Add Z",notNow:"Not now",
+ left:"s left",cam:"Camera",mic:"Microphone",loc:"Location",ntf:"Notifications",scr:"Screen sharing",
+ okSt:"Allowed",blk:"Turned off in Windows",askSt:"Z asks when an app needs it",openS:"Open Windows settings",
+ dmgCap:"Drag Z into Applications",dmgSub:"Then open Z from Applications or Launchpad.",apps:"Applications",
+ s:{messages:"Chats, groups and calls, all in one place.",wallet:"Your money in Z: pay, receive and send.",zeus:"The web, inside your Z desktop.",zphone:"Calls from any screen.",zmail:"Your mail, right next to everything else.",vault:"What's private stays locked.",desk:"One desktop for all of it."}},
+he:{dir:"rtl",name:"עברית",
+ welE:"Z by Orvalen",welH:"Z בדרך",welP:"בלי שאלות ובלי סיסמת מנהל. רק רגע.",
+ dlE:"הורדה",dlH:"Z מגיעה",dlP:"בינתיים, הצצה למה שמחכה בפנים.",
+ vfE:"בדיקה",vfH:"מוודאים שזו באמת Z",vfP:"בודקים את טביעת האצבע של הקובץ ואת החתימה של Orvalen.",
+ inE:"התקנה",inH:"עוד רגע",inP:"מציבים את Z במחשב הזה.",
+ rdE:"מוכן",rdH:"Z מוכנה",rdP:"פותחים את שולחן העבודה.",
+ offE:"אין חיבור",offH:"החיבור נקטע",offP:"מה שכבר ירד נשמר, וההורדה תמשיך משם.",
+ badE:"נעצר",badH:"הקובץ לא עבר את הבדיקה",badP:"שום דבר לא הותקן. אפשר להוריד שוב את התקנת Z מ-orvalen-official.com.",
+ haveE:"כבר מותקן",haveH:"Z כבר כאן",haveP:"אפשר לפתוח אותה, או לתקן את ההתקנה אם משהו לא עובד.",
+ frE:"פתיחה ראשונה",frH:"במה האפליקציות ב-Z יוכלו להשתמש",frP:"כל אפליקציה ב-Z שואלת לפני שימוש באחד מאלה. אפשר לשנות בכל רגע בהגדרות Z.",
+ lnxE:"Linux",lnxH:"להוסיף את Z לאפליקציות",lnxP:"Z תופיע בתפריט האפליקציות עם האייקון שלה ותתעדכן לבד.",
+ cancel:"ביטול",retry:"לנסות שוב",close:"סגירה",open:"לפתוח את Z",repair:"תיקון",later:"אחר כך",done:"להמשיך ל-Z",add:"להוסיף את Z",notNow:"לא עכשיו",
+ left:"שנ׳ נותרו",cam:"מצלמה",mic:"מיקרופון",loc:"מיקום",ntf:"התראות",scr:"שיתוף מסך",
+ okSt:"מותר",blk:"כבוי ב-Windows",askSt:"Z תשאל כשאפליקציה תצטרך",openS:"לפתוח הגדרות Windows",
+ dmgCap:"גוררים את Z אל Applications",dmgSub:"ואז פותחים את Z מ-Applications או מ-Launchpad.",apps:"Applications",
+ s:{messages:"צ'אטים, קבוצות ושיחות, הכול במקום אחד.",wallet:"הכסף שלך ב-Z: לשלם, לקבל ולהעביר.",zeus:"האינטרנט, בתוך שולחן העבודה של Z.",zphone:"שיחות מכל מסך.",zmail:"הדואר שלך, לצד כל השאר.",vault:"מה שפרטי נשאר נעול.",desk:"שולחן עבודה אחד לכול."}},
+es:{dir:"ltr",name:"Español",
+ welE:"Z by Orvalen",welH:"Z ya está en camino",welP:"Sin preguntas y sin contraseña de administrador. Solo un momento.",
+ dlE:"Descargando",dlH:"Z está llegando",dlP:"Mientras tanto, un vistazo a lo que te espera dentro.",
+ vfE:"Comprobando",vfH:"Confirmando que es Z de verdad",vfP:"Comprobando la huella del archivo y la firma de Orvalen.",
+ inE:"Instalando",inH:"Ya casi está",inP:"Colocando Z en este equipo.",
+ rdE:"Listo",rdH:"Z está listo",rdP:"Abriendo tu escritorio.",
+ offE:"Sin conexión",offH:"Se perdió la conexión",offP:"Lo ya descargado se guarda y la descarga sigue desde ahí.",
+ badE:"Detenido",badH:"El archivo no pasó la comprobación",badP:"No se instaló nada. Descarga de nuevo el instalador desde orvalen-official.com.",
+ haveE:"Ya instalado",haveH:"Z ya está aquí",haveP:"Ábrelo o repara la instalación si algo no funciona.",
+ frE:"Primer inicio",frH:"Lo que las apps de Z podrán usar",frP:"Cada app de Z pregunta antes de usar algo de esto. Cámbialo cuando quieras en Ajustes de Z.",
+ lnxE:"Linux",lnxH:"Añadir Z a tus apps",lnxP:"Z aparece en el menú de apps con su icono y se actualiza solo.",
+ cancel:"Cancelar",retry:"Reintentar",close:"Cerrar",open:"Abrir Z",repair:"Reparar",later:"Más tarde",done:"Continuar a Z",add:"Añadir Z",notNow:"Ahora no",
+ left:"s restantes",cam:"Cámara",mic:"Micrófono",loc:"Ubicación",ntf:"Notificaciones",scr:"Compartir pantalla",
+ okSt:"Permitido",blk:"Desactivado en Windows",askSt:"Z pregunta cuando una app lo necesita",openS:"Abrir ajustes de Windows",
+ dmgCap:"Arrastra Z a Aplicaciones",dmgSub:"Luego abre Z desde Aplicaciones o Launchpad.",apps:"Aplicaciones",
+ s:{messages:"Chats, grupos y llamadas en un solo lugar.",wallet:"Tu dinero en Z: paga, recibe y envía.",zeus:"La web, dentro de tu escritorio Z.",zphone:"Llamadas desde cualquier pantalla.",zmail:"Tu correo, junto a todo lo demás.",vault:"Lo privado se queda bajo llave.",desk:"Un escritorio para todo."}},
+ar:{dir:"rtl",name:"العربية",
+ welE:"Z by Orvalen",welH:"Z في الطريق",welP:"بلا أسئلة وبلا كلمة مرور المسؤول. لحظة واحدة.",
+ dlE:"تنزيل",dlH:"Z قادمة إليك",dlP:"في الأثناء، نظرة على ما ينتظرك في الداخل.",
+ vfE:"تحقّق",vfH:"نتأكد أنها Z حقًا",vfP:"نتحقق من بصمة الملف ومن توقيع Orvalen.",
+ inE:"تثبيت",inH:"اقتربنا",inP:"نضع Z في مكانها على هذا الكمبيوتر.",
+ rdE:"جاهزة",rdH:"Z جاهزة",rdP:"نفتح سطح مكتبك.",
+ offE:"لا يوجد اتصال",offH:"انقطع الاتصال",offP:"ما تم تنزيله محفوظ، وسيكمل التنزيل من حيث توقف.",
+ badE:"توقّف",badH:"لم يجتز الملف التحقق",badP:"لم يُثبَّت أي شيء. نزّل مثبّت Z مجددًا من orvalen-official.com.",
+ haveE:"مثبّتة مسبقًا",haveH:"Z موجودة هنا",haveP:"افتحها، أو أصلح التثبيت إذا كان هناك خلل.",
+ frE:"التشغيل الأول",frH:"ما يمكن لتطبيقات Z استخدامه",frP:"كل تطبيق في Z يسأل قبل استخدام أي من هذه. غيّرها متى شئت من إعدادات Z.",
+ lnxE:"Linux",lnxH:"أضف Z إلى تطبيقاتك",lnxP:"تظهر Z في قائمة التطبيقات بأيقونتها وتُحدّث نفسها.",
+ cancel:"إلغاء",retry:"حاول مجددًا",close:"إغلاق",open:"افتح Z",repair:"إصلاح",later:"لاحقًا",done:"تابع إلى Z",add:"أضف Z",notNow:"ليس الآن",
+ left:"ث متبقية",cam:"الكاميرا",mic:"الميكروفون",loc:"الموقع",ntf:"الإشعارات",scr:"مشاركة الشاشة",
+ okSt:"مسموح",blk:"مُعطّل في Windows",askSt:"تسأل Z عندما يحتاجه تطبيق",openS:"افتح إعدادات Windows",
+ dmgCap:"اسحب Z إلى Applications",dmgSub:"ثم افتح Z من Applications أو Launchpad.",apps:"Applications",
+ s:{messages:"محادثات ومجموعات ومكالمات في مكان واحد.",wallet:"أموالك في Z: ادفع واستلم وأرسل.",zeus:"الويب داخل سطح مكتب Z.",zphone:"مكالمات من أي شاشة.",zmail:"بريدك بجانب كل شيء آخر.",vault:"ما هو خاص يبقى مقفلًا.",desk:"سطح مكتب واحد لكل شيء."}},
+ru:{dir:"ltr",name:"Русский",
+ welE:"Z by Orvalen",welH:"Z уже в пути",welP:"Без вопросов и без пароля администратора. Одну минуту.",
+ dlE:"Загрузка",dlH:"Z загружается",dlP:"А пока посмотрите, что ждёт внутри.",
+ vfE:"Проверка",vfH:"Убеждаемся, что это настоящая Z",vfP:"Проверяем отпечаток файла и подпись Orvalen.",
+ inE:"Установка",inH:"Почти готово",inP:"Устанавливаем Z на этот компьютер.",
+ rdE:"Готово",rdH:"Z готова",rdP:"Открываем рабочий стол.",
+ offE:"Нет соединения",offH:"Соединение прервалось",offP:"Загруженное сохранено, загрузка продолжится с того же места.",
+ badE:"Остановлено",badH:"Файл не прошёл проверку",badP:"Ничего не установлено. Скачайте установщик Z заново на orvalen-official.com.",
+ haveE:"Уже установлено",haveH:"Z уже здесь",haveP:"Откройте её или восстановите установку, если что-то не работает.",
+ frE:"Первый запуск",frH:"Что смогут использовать приложения Z",frP:"Каждое приложение Z спрашивает перед использованием. Изменить можно в любой момент в настройках Z.",
+ lnxE:"Linux",lnxH:"Добавить Z в приложения",lnxP:"Z появится в меню приложений со своим значком и будет обновляться сама.",
+ cancel:"Отмена",retry:"Повторить",close:"Закрыть",open:"Открыть Z",repair:"Восстановить",later:"Позже",done:"Перейти в Z",add:"Добавить Z",notNow:"Не сейчас",
+ left:"с осталось",cam:"Камера",mic:"Микрофон",loc:"Геолокация",ntf:"Уведомления",scr:"Демонстрация экрана",
+ okSt:"Разрешено",blk:"Выключено в Windows",askSt:"Z спросит, когда приложению понадобится",openS:"Открыть параметры Windows",
+ dmgCap:"Перетащите Z в «Программы»",dmgSub:"Затем откройте Z из «Программ» или Launchpad.",apps:"Программы",
+ s:{messages:"Чаты, группы и звонки в одном месте.",wallet:"Ваши деньги в Z: платите, получайте, переводите.",zeus:"Интернет прямо на рабочем столе Z.",zphone:"Звонки с любого экрана.",zmail:"Почта рядом со всем остальным.",vault:"Личное остаётся под замком.",desk:"Один рабочий стол для всего."}}};
+
+
+
+const TH=[0,.06,.3,.55,.75,.86,.92,.96,1];
+const A={he:"להפעיל את Z כשהמחשב נדלק",en:"Start Z when the computer turns on",es:"Abrir Z al encender el equipo",ar:"تشغيل Z عند تشغيل الحاسوب",ru:"Запускать Z при включении компьютера"};
+const M={
+ he:["מתחילים. Z בדרך אליך.","מורידים את Z אליך.","כבר שליש מהדרך. ממשיכים.","עברנו את החצי!","ההורדה כמעט הסתיימה.","בודקים שהכול הגיע שלם ובטוח.","מתקינים את הקבצים במחשב שלך.","מכינים את שולחן העבודה שלך.","הכול מוכן. ברוכים הבאים ל-Z!"],
+ en:["Here we go. Z is on its way to you.","Downloading Z for you.","A third of the way. Keep going.","Past the halfway mark!","The download is almost done.","Checking that everything arrived whole and safe.","Installing the files on your computer.","Getting your desktop ready.","All set. Welcome to Z!"],
+ es:["Empezamos. Z va en camino.","Descargando Z para ti.","Ya va un tercio. Seguimos.","¡Pasamos la mitad!","La descarga casi termina.","Comprobando que todo llegó completo y seguro.","Instalando los archivos en tu equipo.","Preparando tu escritorio.","Todo listo. ¡Te damos la bienvenida a Z!"],
+ ar:["نبدأ. Z في الطريق إليك.","ننزّل Z لك.","قطعنا ثلث الطريق. نواصل.","تجاوزنا النصف!","التنزيل يكاد ينتهي.","نتحقق أن كل شيء وصل كاملًا وآمنًا.","نثبّت الملفات على حاسوبك.","نجهّز سطح مكتبك.","كل شيء جاهز. أهلًا بك في Z!"],
+ ru:["Начинаем. Z уже в пути.","Загружаем Z для вас.","Треть пути позади. Продолжаем.","Больше половины!","Загрузка почти завершена.","Проверяем, что всё дошло целым и безопасным.","Устанавливаем файлы на ваш компьютер.","Готовим ваш рабочий стол.","Всё готово. Добро пожаловать в Z!"]};
+
+/* The real Z Setup (approved sketch 2, O 26.11). The Go side drives it:
+   zs.init({lang, installed}) once, then zs.progress({phase, p, done, total, secs}), zs.fail(kind), zs.ready().
+   It calls back: zsStart, zsRetry, zsCancel, zsClose, zsMin, zsDrag, zsAutostart(on), zsOpen, zsRepair. */
+const S={lang:"en",ph:"wel",p:0,shown:0,done:0,total:0,secs:0,mi:-1,open:false};
+const $=id=>document.getElementById(id), win=$("win");
+const call=(name,...a)=>{try{const f=window[name];if(typeof f==="function")return f(...a)}catch(e){}};
+// nothing in this window can be selected, copied, dragged or right-clicked (O 26.11)
+for(const ev of ["contextmenu","dragstart","selectstart","copy","cut"])document.addEventListener(ev,e=>e.preventDefault());
+document.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&["a","c","x","p","s","f","r"].includes(e.key.toLowerCase()))e.preventDefault();if(e.key==="F5"||e.key==="F12")e.preventDefault();});
+$("drag").addEventListener("mousedown",e=>{if(e.button===0)call("zsDrag")});
+$("bMin").onclick=()=>call("zsMin");
+$("bClose").onclick=()=>call("zsCancel");
+$("cancel").onclick=()=>call("zsCancel");
+$("autoStart").onchange=e=>call("zsAutostart",e.target.checked);
+function btn(label,cls,fn){const b=document.createElement("button");b.className="btn "+(cls||"");b.textContent=label;if(fn)b.onclick=fn;return b;}
+function mb(n){return (n/1048576).toFixed(n<10485760?1:0)}
+function texts(){
+ const L=T[S.lang],k=S.ph;document.documentElement.lang=S.lang;document.documentElement.dir=L.dir;win.dir=L.dir;
+ win.dataset.tone=k==="off"?"warn":k==="bad"?"bad":"";if(!win.dataset.tone)delete win.dataset.tone;
+ $("cancel").textContent=L.cancel;$("autoTxt").textContent=A[S.lang];
+ $("bMin").setAttribute("aria-label",L.later);$("bClose").setAttribute("aria-label",L.close);
+ const m=["off","bad","have"].includes(k);$("msg").hidden=!m;$("cancel").hidden=m||k==="vf"||k==="in"||k==="rd";
+ $("gauge").hidden=k==="have";$("autoL").hidden=m;$("mline").hidden=m||k==="have";S.mi=-1;
+ if(m){$("mE").textContent=L[k+"E"];$("mH").textContent=L[k+"H"];$("mP").textContent=L[k+"P"];const a=$("mActs");a.textContent="";
+  if(k==="off")a.append(btn(L.cancel,"ghost",()=>call("zsCancel")),btn(L.retry,"pri",()=>{S.ph="dl";texts();call("zsRetry")}));
+  else if(k==="bad")a.append(btn(L.close,"pri",()=>call("zsClose")));
+  else a.append(btn(L.repair,"",()=>{S.ph="wel";S.p=S.shown=0;texts();call("zsRepair")}),btn(L.open,"pri",()=>call("zsOpen")));}
+ numbers();}
+function numbers(){const L=T[S.lang],k=S.ph,p=S.shown;win.style.setProperty("--p",p.toFixed(4));
+ let mi=0;for(let i=0;i<TH.length;i++)if(p>=TH[i]-1e-6)mi=i;if(k==="rd")mi=TH.length-1;else if(mi===TH.length-1)mi--;
+ if(mi!==S.mi){const first=S.mi<0;S.mi=mi;const el=$("mline");el.textContent=M[S.lang][mi];if(!first){el.classList.remove("swap");void el.offsetWidth;el.classList.add("swap");}}
+ $("pct").textContent=Math.round(p*100)+"%";
+ const n=$("nums");
+ if((k==="dl"||k==="off")&&S.total>0){
+  const left=k==="dl"&&S.secs>0?` · <bdi dir="ltr">${S.secs}</bdi> ${L.left}`:"";
+  n.innerHTML=`<bdi dir="ltr">${mb(S.done)} / ${mb(S.total)} MB</bdi>`+left;
+ } else n.textContent="";}
+// The tide follows the real progress smoothly and never goes back.
+function tick(){const target=Math.max(S.shown,S.p);if(Math.abs(target-S.shown)>0.0005){S.shown+=Math.max(0.0008,(target-S.shown)*0.08);if(S.shown>target)S.shown=target;numbers();}
+ requestAnimationFrame(tick);}
+window.zs={
+ init(o){S.lang=T[o.lang]?o.lang:"en";$("autoStart").checked=!!o.autostart;
+  if(o.installed){S.ph="have";S.p=S.shown=1;texts();}else{S.ph="wel";texts();call("zsStart");}},
+ progress(o){const changed=o.phase!==S.ph;S.ph=o.phase;S.p=Math.max(S.p,o.p||0);S.done=o.done||S.done;S.total=o.total||S.total;S.secs=o.secs||0;if(changed)texts();else numbers();},
+ fail(kind){S.ph=kind==="off"?"off":"bad";texts();},
+ ready(){S.ph="rd";S.p=1;texts();setTimeout(()=>{S.shown=1;numbers();win.classList.add("full")},900);}
+};
+texts();requestAnimationFrame(tick);
+</script>
+</body>
+</html>

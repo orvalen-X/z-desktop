@@ -12,7 +12,8 @@ Installers will appear on the [Releases](../../releases) page and at [orvalen-of
 
 | System | File |
 | --- | --- |
-| Windows | `Z-Web-Setup-<version>.exe`: about 1 MB, downloads the right version for your PC while it installs |
+| Windows | `Z-Setup.exe`: Z Setup, the small branded installer (about 7 MB). It always fetches the newest Z, checks its SHA-256 against the release's `SHA256SUMS.txt`, installs it for you only (no admin prompt) and opens it |
+| Windows (plain) | `Z-Web-Setup-<version>.exe`: about 1 MB, downloads the right version for your PC while it installs |
 | Windows (offline) | `Z-Setup-<version>.exe`: the full installer, for computers without a steady connection (Intel/AMD) |
 | macOS | `Z-<version>-mac-universal.dmg` |
 | Linux | `Z-<version>-linux-x86_64.AppImage` or `z-desktop_<version>_amd64.deb` |
@@ -78,7 +79,10 @@ npm install
 npm start            # run it
 npm run check        # quick checks
 npm run dist:linux   # or dist:win, dist:mac (each on its own system)
+npm run dist:setup   # Z Setup (dist/Z-Setup.exe), needs Go; builds on any system
 ```
+
+Z Setup lives in `installer/` (Go and WebView2, the window engine built into Windows). Its flow is in `installer/setup.go` with no Windows code, so `go test ./...` runs it anywhere; the window is `installer/ui/index.html`.
 
 ---
 

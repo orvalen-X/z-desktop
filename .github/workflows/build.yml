@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: Windows, os: windows-latest, cmd: npm run dist:win }
+          - { name: Windows, os: windows-latest, cmd: npm run dist:win && npm run dist:setup }
           - { name: macOS, os: macos-latest, cmd: npx electron-builder --mac --publish never }
           - { name: Linux, os: ubuntu-latest, cmd: npx electron-builder --linux --publish never }
     steps:
