@@ -120,6 +120,20 @@ func (s *winSys) RunInstaller(ctx context.Context, path string) error {
 	}
 }
 
+// Hold opens the file for reading and lets others only read it, so from the check until the installer has run
+// nobody can write, rename or delete it.
+func (s *winSys) Hold(path string) (func(), error) {
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, err
+	}
+	h, err := windows.CreateFile(p, windows.GENERIC_READ, windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = windows.CloseHandle(h) }, nil
+}
+
 // findInstalledZ looks up Z in the current user's installed programs (what the full installer registers) and
 // returns the path to Z.exe, or "".
 func findInstalledZ() string {

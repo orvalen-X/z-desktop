@@ -28,6 +28,14 @@ func (s *fakeSys) RunInstaller(ctx context.Context, path string) error {
 	return s.fail
 }
 
+func (s *fakeSys) Hold(path string) (func(), error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	return func() { f.Close() }, nil
+}
+
 func sum(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 
 // server serves SHA256SUMS.txt and the installer; dropAt cuts the first download after that many bytes.
@@ -202,5 +210,33 @@ func TestLanguagePick(t *testing.T) {
 	}
 	if got := pickLang([]string{"fr-FR", "he-IL"}); got != "he" {
 		t.Fatalf("second choice ignored: %q", got)
+	}
+}
+
+func TestPartialFromTheWrongPlaceStartsOver(t *testing.T) {
+	payload := []byte(strings.Repeat("abc", 1000))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/SHA256SUMS.txt", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s  Z-Setup-0.3.0.exe\n", sum(payload))
+	})
+	mux.HandleFunc("/Z-Setup-0.3.0.exe", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(payload)-1, len(payload)))
+		w.WriteHeader(http.StatusPartialContent)
+		w.Write(payload)
+	})
+	s := httptest.NewServer(mux)
+	t.Cleanup(s.Close)
+	sys := &fakeSys{}
+	fl, _ := flow(t, s.URL, sys)
+	part := filepath.Join(fl.WorkDir, "Z-Setup-0.3.0.exe.part")
+	if err := os.WriteFile(part, payload[:100], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var f *Failure
+	if err := fl.Run(context.Background()); !errors.As(err, &f) || f.Kind != "off" {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := os.Stat(part); !errors.Is(err, os.ErrNotExist) || sys.ran.Load() != 0 {
+		t.Fatal("kept a partial file the server did not continue")
 	}
 }

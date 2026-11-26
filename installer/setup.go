@@ -67,7 +67,13 @@ func bad(err error) error     { return &Failure{Kind: "bad", Err: err} }
 type System interface {
 	// RunInstaller runs the full installer silently and waits for it.
 	RunInstaller(ctx context.Context, path string) error
+	// Hold keeps the file from being changed (by anyone, even the same user) from before its check until the
+	// installer has run. The returned func lets go of it.
+	Hold(path string) (func(), error)
 }
+
+// The full installer is well under this; anything bigger is not ours.
+const maxInstaller = 512 << 20
 
 // Flow holds one run of Z Setup.
 type Flow struct {
@@ -204,6 +210,11 @@ func (fl *Flow) Download(ctx context.Context, rel Release) (string, error) {
 	defer res.Body.Close()
 	switch {
 	case res.StatusCode == http.StatusPartialContent && have > 0:
+		// The server must continue exactly where the file stopped.
+		if !strings.HasPrefix(res.Header.Get("Content-Range"), fmt.Sprintf("bytes %d-", have)) {
+			_ = os.Remove(part)
+			return "", offline(errors.New("server did not continue where the download stopped, starting over"))
+		}
 	case res.StatusCode == http.StatusOK:
 		have = 0 // the server sent the whole file: start over
 	case res.StatusCode == http.StatusRequestedRangeNotSatisfiable:
@@ -215,6 +226,9 @@ func (fl *Flow) Download(ctx context.Context, rel Release) (string, error) {
 	total := have + res.ContentLength
 	if res.ContentLength < 0 {
 		total = 0
+	}
+	if total > maxInstaller {
+		return "", bad(fmt.Errorf("%s is too large", rel.File))
 	}
 	flags := os.O_CREATE | os.O_WRONLY
 	if have > 0 {
@@ -238,6 +252,11 @@ func (fl *Flow) Download(ctx context.Context, rel Release) (string, error) {
 				return "", bad(werr)
 			}
 			done += int64(n)
+			if done > maxInstaller {
+				f.Close()
+				_ = os.Remove(part)
+				return "", bad(fmt.Errorf("%s is too large", rel.File))
+			}
 			if now := fl.Now(); now.Sub(lastReport) > 120*time.Millisecond {
 				lastReport = now
 				fl.report(PhaseDownload, done, total, start, startDone)
@@ -292,7 +311,7 @@ func fileHashIs(path, want string) (bool, error) {
 	return hex.EncodeToString(h.Sum(nil)) == want, nil
 }
 
-// Verify checks the downloaded installer's SHA-256. A file that fails is deleted: nothing from it runs.
+// Verify checks the downloaded installer's SHA-256. Run deletes a file that fails: nothing from it runs.
 func (fl *Flow) Verify(path string, rel Release) error {
 	if fl.Report != nil {
 		fl.Report(Progress{Phase: PhaseVerify, P: shareDownload})
@@ -302,7 +321,6 @@ func (fl *Flow) Verify(path string, rel Release) error {
 		return bad(err)
 	}
 	if !ok {
-		_ = os.Remove(path)
 		return bad(errors.New("SHA-256 does not match the release"))
 	}
 	if fl.Report != nil {
@@ -319,7 +337,6 @@ func (fl *Flow) Install(ctx context.Context, path string) error {
 	if err := fl.Sys.RunInstaller(ctx, path); err != nil {
 		return bad(err)
 	}
-	_ = os.Remove(path) // done with it; Z updates itself from now on
 	if fl.Report != nil {
 		fl.Report(Progress{Phase: PhaseReady, P: 1})
 	}
@@ -339,8 +356,20 @@ func (fl *Flow) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// From the check until the installer has run, nobody can change the file.
+	release, err := fl.Sys.Hold(path)
+	if err != nil {
+		return bad(err)
+	}
 	if err := fl.Verify(path, rel); err != nil {
+		release()
+		_ = os.Remove(path)
 		return err
 	}
-	return fl.Install(ctx, path)
+	err = fl.Install(ctx, path)
+	release()
+	if err == nil {
+		_ = os.Remove(path) // done with it; Z updates itself from now on
+	}
+	return err
 }
