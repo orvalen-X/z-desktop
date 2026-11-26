@@ -8,6 +8,8 @@
 //   display settings. Nothing that changes the system.
 // - extend (api 3): a one-time name for a plain window on one display (Z draws there itself), and moving Z's own
 //   window to the display the person chooses.
+// - extend, way A (api 4): which display this Z runs on (a whole Z on an extra display gets its id; Z's own window
+//   gets none), and, for Z's own window only, turning a whole Z on every extra display on or off.
 // No file, system or network access is exposed to the page. The main process also checks that each request
 // comes from Z's own page (not from an app frame inside it) before it does anything.
 
@@ -45,10 +47,12 @@ contextBridge.exposeInMainWorld(
   'zDesktop',
   Object.freeze({
     isDesktopApp: true,
-    api: 3,
+    api: 4,
     platform: process.platform,
     version: arg('z-desktop-version'),
     release: arg('z-desktop-release'),
+    display: Object.freeze({ id: arg('z-desktop-display') || null, main: !arg('z-desktop-display') }),
+    desks: Object.freeze({ set: (on) => ipcRenderer.invoke('zd:desks:set', on === true) }),
     fullscreen: Object.freeze({
       get: () => ipcRenderer.invoke('zd:fs:get'),
       set: (on) => ipcRenderer.invoke('zd:fs:set', on === true),
