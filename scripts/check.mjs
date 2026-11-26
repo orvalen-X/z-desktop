@@ -224,7 +224,7 @@ test('Linux autostart: a path with a line break or other control character is re
     assert.throws(() => auto.linuxEntry(bad), /unsafe path/);
   const files = {};
   const fakeFs = { existsSync: (f) => f in files, mkdirSync: () => {}, writeFileSync: (f, d) => (files[f] = d), unlinkSync: (f) => delete files[f] };
-  const a = auto.createAutostart({ app: { isPackaged: true }, platform: 'linux', env: { APPIMAGE: '/tmp/x\nExec=evil' }, fs: fakeFs, path: require('node:path'), homedir: '/home/u', execPath: '/opt/Z/z' });
+  const a = auto.createAutostart({ app: { isPackaged: true }, platform: 'linux', env: { APPIMAGE: '/tmp/x\nExec=evil' }, fs: fakeFs, path: require('node:path').posix, homedir: '/home/u', execPath: '/opt/Z/z' });
   assert.deepEqual(a.set(true), { supported: true, enabled: false });
   assert.equal(Object.keys(files).length, 0);
 });
@@ -236,7 +236,7 @@ test('autostart: never registered while developing, Linux file on and off', () =
     writeFileSync: (f, d) => (files[f] = d),
     unlinkSync: (f) => delete files[f],
   };
-  const path = require('node:path');
+  const path = require('node:path').posix; // Linux paths, also when the checks run on Windows
   const mk = (isPackaged, env = {}) =>
     auto.createAutostart({ app: { isPackaged }, platform: 'linux', env, fs: fakeFs, path, homedir: '/home/u', execPath: '/opt/Z/z-desktop' });
   assert.deepEqual(mk(false).set(true), { supported: false, enabled: false });
