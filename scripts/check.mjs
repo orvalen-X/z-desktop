@@ -290,15 +290,15 @@ test('autostart: Windows registers with --autostart, Mac without arguments', () 
 // ---------- the page API: only these names, and the release name travels with the version ----------
 test('preload exposes only the full-screen, autostart, display and extend calls', () => {
   const src = readFileSyncSafe('src/preload.js');
-  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'"].includes(ch), ch);
-  assert.ok(/api: 5,/.test(src), 'api 5');
+  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'", "'zd:window:send'", "'zd:window:receive'"].includes(ch), ch);
+  assert.ok(/api: 6,/.test(src), 'api 6');
   assert.ok(!/require\('(?!electron')/.test(src), 'preload requires only electron');
 });
 test('main checks every Z request comes from Z itself', () => {
   const src = readFileSyncSafe('src/main.js');
   const handlers = src.match(/ipcMain\.handle\('zd:[a-z:]+', \([^)]*\) =>\s*\(?\s*from(Main)?Z\(e\)/g) || [];
   assert.equal(handlers.length, (src.match(/ipcMain\.handle\(/g) || []).length);
-  assert.equal(handlers.length, 15);
+  assert.equal(handlers.length, 16);
   // What only Z's own window decides: extend on/off, the one-time window names, the main display, autostart, the lock.
   for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set', 'zd:lock:set']) {
     assert.ok(new RegExp(`ipcMain\\.handle\\('${ch}', \\([^)]*\\) =>\\s*\\(?\\s*fromMainZ\\(e\\)`).test(src), ch);
@@ -708,6 +708,52 @@ test('main checks every Z request comes from Z itself', () => {
     assert.equal(m.activity(), false);
     t += 1;
     assert.equal(m.activity(), true);
+  });
+}
+// ---------- extend, way A, layer 4 (api 6): a window dragged off one display opens on the display under the cursor ----------
+{
+  const { createWindowMove, cleanWindow, MAX_PARAMS } = require('../src/windowMove.js');
+  const d1 = { id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 } };
+  const d2 = { id: 2, bounds: { x: 1920, y: 0, width: 2560, height: 1440 } };
+  const setup = (opts = {}) => {
+    const sent = [];
+    const wc2 = { send: (ch, v) => sent.push([ch, v]), isDestroyed: () => false };
+    let cursor = opts.cursor || { x: 2000, y: 100 };
+    const m = createWindowMove({
+      screen: { getCursorScreenPoint: () => cursor, getDisplayNearestPoint: (p) => (p.x >= 1920 ? d2 : d1) },
+      isLocked: () => opts.locked === true,
+      senderDisplay: (s) => (s === 'main' ? '1' : s === 'desk2' ? '2' : null),
+      targetOf: (id) => (id === '2' ? wc2 : null),
+    });
+    return { m, sent, move: (c) => (cursor = c) };
+  };
+  const spec = { appId: 'zdocs', windowKey: 'zdocs:abc', title: 'Doc', params: { file: 'f1' }, w: 900, h: 600, grabX: 40, grabY: 12 };
+  test('move: the window goes to the Z on the display under the cursor, placed where the cursor is', () => {
+    const { m, sent } = setup();
+    assert.deepEqual(m.send('main', spec), { ok: true });
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0][0], 'zd:window:receive');
+    assert.deepEqual(sent[0][1], { appId: 'zdocs', windowKey: 'zdocs:abc', title: 'Doc', params: { file: 'f1' }, w: 900, h: 600, grabX: 40, grabY: 12, x: 80, y: 100 });
+  });
+  test('move: nothing moves while locked, onto the same display, to a display without Z, or from a stranger', () => {
+    assert.deepEqual(setup({ locked: true }).m.send('main', spec), { ok: false }, 'locked');
+    const same = setup({ cursor: { x: 100, y: 100 } });
+    assert.deepEqual(same.m.send('main', spec), { ok: false }, 'cursor still on the sender display');
+    assert.deepEqual(setup().m.send('desk2', spec), { ok: false }, 'back onto its own display');
+    assert.deepEqual(setup().m.send('stranger', spec), { ok: false });
+    const off = setup({ cursor: { x: 9000, y: 100 } });
+    assert.deepEqual(off.m.send('main', spec), { ok: false }, 'cursor outside every display');
+    assert.equal(same.sent.length + off.sent.length, 0);
+  });
+  test('move: only a clean description crosses', () => {
+    for (const bad of [null, 'x', {}, { appId: '../x' }, { appId: 'a'.repeat(65) }, { appId: 'ok', params: 'str' }, { appId: 'ok', params: { big: 'x'.repeat(MAX_PARAMS) } }]) {
+      assert.equal(cleanWindow(bad), null, JSON.stringify(bad)?.slice(0, 40));
+    }
+    const loop = { appId: 'ok', params: {} };
+    loop.params.self = loop.params;
+    assert.equal(cleanWindow(loop), null, 'params that are not plain JSON');
+    const c = cleanWindow({ appId: 'ok', windowKey: '', title: 5, w: 1e9, h: -3, grabX: NaN, extra: 'no', params: { f: () => 1, n: 2 } });
+    assert.deepEqual(c, { appId: 'ok', windowKey: null, title: null, params: { n: 2 }, w: null, h: null, grabX: 0, grabY: 0 });
   });
 }
 test('navigation: the top stays on Z, frames inside Z follow their own redirects', () => {
