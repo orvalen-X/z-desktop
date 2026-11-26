@@ -84,6 +84,7 @@ type Flow struct {
 	Client  *http.Client
 	Latest  string        // the newest release's page; Run reads its tag and sets Base from it
 	Base    string        // where the release's files are (set by Run from Latest, or by tests directly)
+	Tag     string        // the release tag Run resolved (e.g. "v0.3.0"); "" when Base was set directly
 	Stall   time.Duration // a download with no bytes for this long counts as a lost connection (0 = 60s)
 	WorkDir string        // where the download is kept between attempts
 	Sys     System
@@ -215,6 +216,7 @@ func (fl *Flow) ResolveLatest(ctx context.Context) error {
 		!strings.EqualFold(loc.Path, strings.TrimSuffix(page.Path, "/latest")+"/tag/"+m[1]) {
 		return bad(fmt.Errorf("unexpected release address %s", loc.Redacted()))
 	}
+	fl.Tag = m[1]
 	fl.Base = page.Scheme + "://" + page.Host + strings.TrimSuffix(loc.Path, "/tag/"+m[1]) + "/download/" + m[1] + "/"
 	return nil
 }
@@ -416,6 +418,9 @@ func (fl *Flow) Run(ctx context.Context) error {
 	rel, err := fl.FindRelease(ctx)
 	if err != nil {
 		return err
+	}
+	if fl.Tag != "" && fl.Tag != "v"+rel.Version {
+		return bad(fmt.Errorf("release %s lists installer %s", fl.Tag, rel.Version))
 	}
 	path, err := fl.Download(ctx, rel)
 	if err != nil {

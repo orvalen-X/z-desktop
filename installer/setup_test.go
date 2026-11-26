@@ -301,3 +301,22 @@ func TestStalledDownloadCountsAsOffline(t *testing.T) {
 		t.Fatal("what arrived was not kept")
 	}
 }
+
+func TestTagAndInstallerVersionMustAgree(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/o/z/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/o/z/releases/tag/v0.4.0", http.StatusFound)
+	})
+	mux.HandleFunc("/o/z/releases/download/v0.4.0/SHA256SUMS.txt", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s  Z-Setup-0.3.0.exe\n", sum([]byte("Z")))
+	})
+	s := httptest.NewServer(mux)
+	t.Cleanup(s.Close)
+	sys := &fakeSys{}
+	fl, _ := flow(t, "", sys)
+	fl.Base, fl.Latest = "", s.URL+"/o/z/releases/latest"
+	var f *Failure
+	if err := fl.Run(context.Background()); !errors.As(err, &f) || f.Kind != "bad" || sys.ran.Load() != 0 {
+		t.Fatalf("got %v", err)
+	}
+}
