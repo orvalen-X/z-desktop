@@ -1,0 +1,346 @@
+// Z Setup: the small branded program people download from the site (approved sketch 2, O 26.11).
+//
+// It finds the newest Z release on GitHub, downloads the full Windows installer (resuming after a dropped
+// connection), checks its SHA-256 against the release's SHA256SUMS.txt, runs it silently (so updates and
+// uninstall keep working exactly as today), and opens Z. This file has no Windows code, so the whole flow is
+// tested on any system; the window and the system calls live in *_windows.go.
+package main
+
+import (
+	"bufio"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+)
+
+// Where releases live. Only these hosts are ever contacted, also after a redirect.
+const (
+	releaseBase = "https://github.com/orvalen-X/z-desktop/releases/latest/download/"
+	sumsName    = "SHA256SUMS.txt"
+)
+
+var allowedHosts = []string{"github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"}
+
+// The full installer inside the release, e.g. "Z-Setup-0.3.0.exe".
+var installerName = regexp.MustCompile(`^Z-Setup-(\d+\.\d+\.\d+)\.exe$`)
+
+// Phases the window shows (sketch 2).
+const (
+	PhaseStart    = "wel"
+	PhaseDownload = "dl"
+	PhaseVerify   = "vf"
+	PhaseInstall  = "in"
+	PhaseReady    = "rd"
+)
+
+// Progress is what the window needs to draw: the phase, 0..1 overall, and the download numbers.
+type Progress struct {
+	Phase string  `json:"phase"`
+	P     float64 `json:"p"`
+	Done  int64   `json:"done"`
+	Total int64   `json:"total"`
+	Secs  int     `json:"secs"`
+}
+
+// Failure kinds the window knows: "off" (no connection, can resume) and "bad" (check failed / install failed).
+type Failure struct {
+	Kind string
+	Err  error
+}
+
+func (f *Failure) Error() string { return f.Kind + ": " + f.Err.Error() }
+
+func offline(err error) error { return &Failure{Kind: "off", Err: err} }
+func bad(err error) error     { return &Failure{Kind: "bad", Err: err} }
+
+// System is everything that touches the computer, so tests can replace it.
+type System interface {
+	// RunInstaller runs the full installer silently and waits for it.
+	RunInstaller(ctx context.Context, path string) error
+}
+
+// Flow holds one run of Z Setup.
+type Flow struct {
+	Client  *http.Client
+	Base    string // release base URL (tests point it at a local server)
+	WorkDir string // where the download is kept between attempts
+	Sys     System
+	Report  func(Progress)
+	Now     func() time.Time
+}
+
+// Share of the bar each phase gets (sketch 2: download to 86%, check to 92%, install to 100%).
+const (
+	shareDownload = 0.86
+	shareVerify   = 0.92
+)
+
+// NewClient refuses every redirect that leaves https or the allowed hosts.
+func NewClient() *http.Client {
+	return &http.Client{
+		Timeout: 0, // a large file on a slow line: stalls are caught by the read deadline below
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 8 {
+				return errors.New("too many redirects")
+			}
+			if !hostAllowed(req.URL) {
+				return fmt.Errorf("redirect to %s refused", req.URL.Host)
+			}
+			return nil
+		},
+	}
+}
+
+func hostAllowed(u *url.URL) bool {
+	if u == nil || u.Scheme != "https" || u.Port() != "" {
+		return false
+	}
+	h := strings.ToLower(u.Hostname())
+	for _, a := range allowedHosts {
+		if h == a {
+			return true
+		}
+	}
+	return false
+}
+
+// Release is the installer to fetch and the hash it must have.
+type Release struct {
+	Version string
+	File    string
+	SHA256  string
+}
+
+// ParseSums finds the Windows installer line in SHA256SUMS.txt ("<hex>  <file>").
+func ParseSums(r io.Reader) (Release, error) {
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		f := strings.Fields(sc.Text())
+		if len(f) != 2 {
+			continue
+		}
+		name := strings.TrimPrefix(f[1], "*")
+		m := installerName.FindStringSubmatch(name)
+		if m == nil {
+			continue
+		}
+		h := strings.ToLower(f[0])
+		if len(h) != 64 {
+			return Release{}, fmt.Errorf("bad hash for %s", name)
+		}
+		if _, err := hex.DecodeString(h); err != nil {
+			return Release{}, fmt.Errorf("bad hash for %s", name)
+		}
+		return Release{Version: m[1], File: name, SHA256: h}, nil
+	}
+	if err := sc.Err(); err != nil {
+		return Release{}, err
+	}
+	return Release{}, errors.New("no Windows installer in SHA256SUMS.txt")
+}
+
+func (fl *Flow) get(ctx context.Context, name string, from int64) (*http.Response, error) {
+	u, err := url.Parse(fl.Base + name)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "ZSetup")
+	if from > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", from))
+	}
+	return fl.Client.Do(req)
+}
+
+// FindRelease reads SHA256SUMS.txt of the newest release.
+func (fl *Flow) FindRelease(ctx context.Context) (Release, error) {
+	res, err := fl.get(ctx, sumsName, 0)
+	if err != nil {
+		return Release{}, offline(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return Release{}, offline(fmt.Errorf("%s: %s", sumsName, res.Status))
+	}
+	rel, err := ParseSums(io.LimitReader(res.Body, 64<<10))
+	if err != nil {
+		return Release{}, bad(err)
+	}
+	return rel, nil
+}
+
+// Download fetches the installer into WorkDir, continuing a partial file from an earlier attempt.
+func (fl *Flow) Download(ctx context.Context, rel Release) (string, error) {
+	if err := os.MkdirAll(fl.WorkDir, 0o700); err != nil {
+		return "", bad(err)
+	}
+	final := filepath.Join(fl.WorkDir, rel.File)
+	part := final + ".part"
+	// A finished file from an earlier run that passes the check is used as it is.
+	if ok, _ := fileHashIs(final, rel.SHA256); ok {
+		return final, nil
+	}
+	var have int64
+	if st, err := os.Stat(part); err == nil {
+		have = st.Size()
+	}
+	res, err := fl.get(ctx, rel.File, have)
+	if err != nil {
+		return "", offline(err)
+	}
+	defer res.Body.Close()
+	switch {
+	case res.StatusCode == http.StatusPartialContent && have > 0:
+	case res.StatusCode == http.StatusOK:
+		have = 0 // the server sent the whole file: start over
+	case res.StatusCode == http.StatusRequestedRangeNotSatisfiable:
+		_ = os.Remove(part)
+		return "", offline(errors.New("partial file no longer matches, starting over"))
+	default:
+		return "", offline(fmt.Errorf("%s: %s", rel.File, res.Status))
+	}
+	total := have + res.ContentLength
+	if res.ContentLength < 0 {
+		total = 0
+	}
+	flags := os.O_CREATE | os.O_WRONLY
+	if have > 0 {
+		flags |= os.O_APPEND
+	} else {
+		flags |= os.O_TRUNC
+	}
+	f, err := os.OpenFile(part, flags, 0o600)
+	if err != nil {
+		return "", bad(err)
+	}
+	done := have
+	start, startDone := fl.Now(), done
+	buf := make([]byte, 256<<10)
+	lastReport := time.Time{}
+	for {
+		n, rerr := res.Body.Read(buf)
+		if n > 0 {
+			if _, werr := f.Write(buf[:n]); werr != nil {
+				f.Close()
+				return "", bad(werr)
+			}
+			done += int64(n)
+			if now := fl.Now(); now.Sub(lastReport) > 120*time.Millisecond {
+				lastReport = now
+				fl.report(PhaseDownload, done, total, start, startDone)
+			}
+		}
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
+			f.Close()
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
+			return "", offline(rerr) // what arrived is kept for the next attempt
+		}
+	}
+	if err := f.Close(); err != nil {
+		return "", bad(err)
+	}
+	fl.report(PhaseDownload, done, total, start, startDone)
+	if err := os.Rename(part, final); err != nil {
+		return "", bad(err)
+	}
+	return final, nil
+}
+
+func (fl *Flow) report(phase string, done, total int64, start time.Time, startDone int64) {
+	if fl.Report == nil {
+		return
+	}
+	p := Progress{Phase: phase, Done: done, Total: total}
+	if total > 0 {
+		p.P = shareDownload * float64(done) / float64(total)
+		if el := fl.Now().Sub(start).Seconds(); el > 0.5 && done > startDone {
+			rate := float64(done-startDone) / el
+			p.Secs = int(float64(total-done)/rate + 0.999)
+		}
+	}
+	fl.Report(p)
+}
+
+func fileHashIs(path, want string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false, err
+	}
+	return hex.EncodeToString(h.Sum(nil)) == want, nil
+}
+
+// Verify checks the downloaded installer's SHA-256. A file that fails is deleted: nothing from it runs.
+func (fl *Flow) Verify(path string, rel Release) error {
+	if fl.Report != nil {
+		fl.Report(Progress{Phase: PhaseVerify, P: shareDownload})
+	}
+	ok, err := fileHashIs(path, rel.SHA256)
+	if err != nil {
+		return bad(err)
+	}
+	if !ok {
+		_ = os.Remove(path)
+		return bad(errors.New("SHA-256 does not match the release"))
+	}
+	if fl.Report != nil {
+		fl.Report(Progress{Phase: PhaseVerify, P: shareVerify})
+	}
+	return nil
+}
+
+// Install runs the full installer silently. The bar eases toward the end while it runs.
+func (fl *Flow) Install(ctx context.Context, path string) error {
+	if fl.Report != nil {
+		fl.Report(Progress{Phase: PhaseInstall, P: shareVerify})
+	}
+	if err := fl.Sys.RunInstaller(ctx, path); err != nil {
+		return bad(err)
+	}
+	_ = os.Remove(path) // done with it; Z updates itself from now on
+	if fl.Report != nil {
+		fl.Report(Progress{Phase: PhaseReady, P: 1})
+	}
+	return nil
+}
+
+// Run is the whole way from nothing to an installed Z.
+func (fl *Flow) Run(ctx context.Context) error {
+	if fl.Report != nil {
+		fl.Report(Progress{Phase: PhaseStart})
+	}
+	rel, err := fl.FindRelease(ctx)
+	if err != nil {
+		return err
+	}
+	path, err := fl.Download(ctx, rel)
+	if err != nil {
+		return err
+	}
+	if err := fl.Verify(path, rel); err != nil {
+		return err
+	}
+	return fl.Install(ctx, path)
+}

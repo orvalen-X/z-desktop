@@ -1,0 +1,35 @@
+// Builds Z Setup (installer/), the small branded program the site offers: dist/Z-Setup.exe.
+// It always installs the newest release, so the same name works from every release
+// (https://github.com/orvalen-X/z-desktop/releases/latest/download/Z-Setup.exe).
+// x64 only: Windows on ARM runs it as it runs the full x64 installer it downloads.
+// Needs Go (go.mod picks the exact version). Unsigned, like the other installers, until signing is turned on.
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
+const root = resolve(import.meta.dirname, '..');
+const dir = join(root, 'installer');
+const out = join(root, 'dist', 'Z-Setup.exe');
+const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
+const v4 = `${version}.0`;
+
+function go(args, env = {}) {
+  console.log('> go', args.join(' '));
+  execFileSync('go', args, { cwd: dir, stdio: 'inherit', env: { ...process.env, ...env } });
+}
+
+go(['vet', './...']);
+go(['test', './...']);
+const win = { GOOS: 'windows', GOARCH: 'amd64', CGO_ENABLED: '0' };
+go(['vet', './...'], win);
+// Icon (id 1, used by the window), manifest (no admin prompt, sharp on high-DPI screens) and file details.
+go(['run', 'github.com/tc-hib/go-winres@v0.3.3', 'make', '--in', 'winres/winres.json', '--arch', 'amd64',
+  '--file-version', v4, '--product-version', v4]);
+mkdirSync(join(root, 'dist'), { recursive: true });
+try {
+  go(['build', '-trimpath', '-ldflags', '-s -w -H windowsgui', '-o', out, '.'], win);
+} finally {
+  rmSync(join(dir, 'rsrc_windows_amd64.syso'), { force: true });
+}
+const mb = (statSync(out).size / 1048576).toFixed(1);
+console.log(`built ${out} (${mb} MB)`);

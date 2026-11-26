@@ -28,7 +28,7 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - { name: Windows, os: windows-latest, cmd: npm run dist:win }
+          - { name: Windows, os: windows-latest, cmd: npm run dist:win && npm run dist:setup }
           - { name: macOS, os: macos-latest, cmd: npx electron-builder --mac --publish never }
           - { name: Linux, os: ubuntu-latest, cmd: npx electron-builder --linux --publish never }
     steps:
@@ -48,6 +48,15 @@ jobs:
         run: ${{ matrix.cmd }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      # Signing switch (off). When Orvalen has a code-signing account, the signing step goes here, before the
+      # checksums, so the checksums are of the signed files. Turning on the switch without it stops the release.
+      - name: Sign Windows files
+        if: matrix.name == 'Windows' && vars.Z_WINDOWS_SIGNING == 'on'
+        shell: bash
+        run: |
+          echo "::error::Windows signing is switched on, but no signing step is set up yet."
+          exit 1
 
       - name: Checksums
         run: node scripts/checksums.mjs ${{ matrix.name }}
