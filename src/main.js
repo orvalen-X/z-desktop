@@ -82,24 +82,31 @@ function userAgent() {
   return cachedUserAgent;
 }
 
+// Every system message box goes through here, so RTL languages read right to left (i18n.boxText).
+function showBox(parent, opts) {
+  const l = lang();
+  const o = { ...opts };
+  for (const k of ['title', 'message', 'detail']) o[k] = i18n.boxText(l, o[k]);
+  if (Array.isArray(o.buttons)) o.buttons = o.buttons.map((b) => i18n.boxText(l, b));
+  return parent ? dialog.showMessageBox(parent, o) : dialog.showMessageBox(o);
+}
+
 // ---------- security for everything that loads ----------
 
 function askPermission(origin, kinds) {
   const s = t();
   const names = kinds.map((k) => s['perm' + k[0].toUpperCase() + k.slice(1)]);
   const what = names.join(s.permJoin);
-  return dialog
-    .showMessageBox(win && !win.isDestroyed() ? win : undefined, {
-      type: 'question',
-      title: 'Z',
-      message: s.permAsk.replace('{what}', what),
-      detail: `${new URL(origin).host}\n\n${s.permDetail}`,
-      buttons: [s.permAllow, s.permDeny],
-      defaultId: 1,
-      cancelId: 1,
-      noLink: true,
-    })
-    .then(({ response }) => response === 0);
+  return showBox(win && !win.isDestroyed() ? win : undefined, {
+    type: 'question',
+    title: 'Z',
+    message: s.permAsk.replace('{what}', what),
+    detail: `${i18n.ltrRun(new URL(origin).host)}\n\n${s.permDetail}`,
+    buttons: [s.permAllow, s.permDeny],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  }).then(({ response }) => response === 0);
 }
 
 const permissions = createPermissions({
@@ -119,23 +126,21 @@ const permissions = createPermissions({
 
 function resetPermissions() {
   const s = t();
-  dialog
-    .showMessageBox(win && !win.isDestroyed() ? win : undefined, {
-      type: 'question',
-      title: s.resetTitle,
-      message: s.resetTitle,
-      detail: s.resetBody,
-      buttons: [s.resetConfirm, s.cancel],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
-    })
-    .then(({ response }) => {
-      if (response !== 0) return;
-      permissions.reset();
-      // Reload so any camera or microphone already in use is released.
-      if (zView && !zView.webContents.isDestroyed() && !offline) zView.webContents.reload();
-    });
+  showBox(win && !win.isDestroyed() ? win : undefined, {
+    type: 'question',
+    title: s.resetTitle,
+    message: s.resetTitle,
+    detail: s.resetBody,
+    buttons: [s.resetConfirm, s.cancel],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  }).then(({ response }) => {
+    if (response !== 0) return;
+    permissions.reset();
+    // Reload so any camera or microphone already in use is released.
+    if (zView && !zView.webContents.isDestroyed() && !offline) zView.webContents.reload();
+  });
 }
 
 function hardenSession(ses) {
@@ -164,19 +169,17 @@ function openOutside(url) {
 
 function explainGoogle() {
   const s = t();
-  dialog
-    .showMessageBox(win, {
-      type: 'info',
-      title: s.googleTitle,
-      message: s.googleTitle,
-      detail: s.googleBody,
-      buttons: [s.ok, s.googleOpenBrowser],
-      defaultId: 0,
-      cancelId: 0,
-    })
-    .then(({ response }) => {
-      if (response === 1) openOutside(cfg.START_URL);
-    });
+  showBox(win, {
+    type: 'info',
+    title: s.googleTitle,
+    message: s.googleTitle,
+    detail: s.googleBody,
+    buttons: [s.ok, s.googleOpenBrowser],
+    defaultId: 0,
+    cancelId: 0,
+  }).then(({ response }) => {
+    if (response === 1) openOutside(cfg.START_URL);
+  });
 }
 
 function guardContents(wc) {
@@ -236,18 +239,16 @@ function secureWebPreferences(withPreload) {
 // ---------- updates of the app itself ----------
 
 function ask(type, message, detail, buttons) {
-  return dialog
-    .showMessageBox(win && !win.isDestroyed() ? win : undefined, {
-      type,
-      title: 'Z',
-      message,
-      detail,
-      buttons,
-      defaultId: 0,
-      cancelId: buttons.length - 1,
-      noLink: true,
-    })
-    .then(({ response }) => response);
+  return showBox(win && !win.isDestroyed() ? win : undefined, {
+    type,
+    title: 'Z',
+    message,
+    detail,
+    buttons,
+    defaultId: 0,
+    cancelId: buttons.length - 1,
+    noLink: true,
+  }).then(({ response }) => response);
 }
 
 async function fetchLatestRelease() {
