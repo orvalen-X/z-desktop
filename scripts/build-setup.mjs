@@ -14,8 +14,9 @@ const dir = join(root, 'installer');
 const out = join(root, 'dist', 'Z-Setup.exe');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const version = pkg.version;
-if (!/^\d+\.\d+\.\d+$/.test(version) || !/^[A-Za-z]{1,16}$/.test(pkg.zReleaseName || '')) {
-  console.error('package.json needs "version" like 1.2.3 and "zReleaseName" of 1 to 16 Latin letters');
+// "Setup" is refused: Z-Setup-<version>.exe is the full installer, and Windows file names ignore case.
+if (!/^\d+\.\d+\.\d+$/.test(version) || !/^[A-Za-z]{1,16}$/.test(pkg.zReleaseName || '') || /^setup$/i.test(pkg.zReleaseName)) {
+  console.error('package.json needs "version" like 1.2.3 and "zReleaseName" of 1 to 16 Latin letters, not "Setup"');
   process.exit(1);
 }
 const named = join(root, 'dist', `Z-${pkg.zReleaseName}-${version}.exe`);
@@ -39,6 +40,7 @@ try {
 } finally {
   rmSync(join(dir, 'rsrc_windows_amd64.syso'), { force: true });
 }
+// When signing is switched on, sign Z-Setup.exe before this copy, so both files are signed.
 copyFileSync(out, named);
 const mb = (statSync(out).size / 1048576).toFixed(1);
 console.log(`built ${out} and ${named} (${mb} MB)`);
