@@ -730,6 +730,7 @@ test('main checks every Z request comes from Z itself', () => {
     const m = createWindowMove({
       screen: { getCursorScreenPoint: () => cursor, getDisplayNearestPoint: (p) => (p.x >= 1920 ? d2 : d1) },
       isLocked: () => opts.locked === true,
+      profileOf: () => (opts.profile === undefined ? 'p1' : opts.profile),
       senderDisplay: (s) => (s === 'main' ? '1' : s === 'desk2' ? '2' : null),
       targetOf: (id) => (id === '2' ? wc2 : null),
       now: () => t,
@@ -747,7 +748,7 @@ test('main checks every Z request comes from Z itself', () => {
     const p = m.send('main', spec).then((r) => (done = r));
     assert.equal(sent.length, 1);
     assert.equal(sent[0][0], 'zd:window:receive');
-    assert.deepEqual(sent[0][1], { appId: 'zdocs', windowKey: 'zdocs:abc', title: 'Doc', params: { file: 'f1' }, w: 900, h: 600, grabX: 40, grabY: 12, x: 80, y: 100, token: 'tok1' });
+    assert.deepEqual(sent[0][1], { appId: 'zdocs', windowKey: 'zdocs:abc', title: 'Doc', params: { file: 'f1' }, w: 900, h: 600, grabX: 40, grabY: 12, x: 80, y: 100, token: 'tok1', profile: 'p1' });
     await Promise.resolve();
     assert.equal(done, null, 'sent is not arrived');
     assert.deepEqual(m.arrived('main', { token: 'tok1', ok: true }), { ok: false }, 'only the Z it was sent to answers');
@@ -785,6 +786,7 @@ test('main checks every Z request comes from Z itself', () => {
   });
   test('move: nothing moves while locked, onto the same display, to a display without Z, or from a stranger', async () => {
     assert.deepEqual(await setup({ locked: true }).m.send('main', spec), { ok: false }, 'locked');
+    assert.deepEqual(await setup({ profile: null }).m.send('main', spec), { ok: false }, 'no profile unlocked Z');
     const same = setup({ cursor: { x: 100, y: 100 } });
     assert.deepEqual(await same.m.send('main', spec), { ok: false }, 'cursor still on the sender display');
     assert.deepEqual(await setup().m.send('desk2', spec), { ok: false }, 'back onto its own display');

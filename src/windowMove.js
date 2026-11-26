@@ -63,7 +63,7 @@ function cleanWindow(spec) {
 const ARRIVE_MS = 3000;
 const MIN_GAP_MS = 200;
 
-function createWindowMove({ screen, isLocked, senderDisplay, targetOf, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, newToken }) {
+function createWindowMove({ screen, isLocked, profileOf, senderDisplay, targetOf, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, newToken }) {
   const waiting = new Map(); // token -> { target, finish }
   const inFlight = new Set(); // senders with a move that was not answered yet
   const lastSend = new Map(); // sender -> when it last sent
@@ -72,6 +72,9 @@ function createWindowMove({ screen, isLocked, senderDisplay, targetOf, now = Dat
   // From a Z (main.js checks fromZ). Resolves { ok } : ok only when the Z on another display opened the window.
   function send(sender, spec) {
     if (isLocked()) return no();
+    // Closure-old S3: the profile Z was unlocked by travels from here (never from the page); a desk of anyone else refuses.
+    const profile = typeof profileOf === 'function' ? profileOf() : null;
+    if (typeof profile !== 'string' || !profile) return no();
     if (inFlight.has(sender)) return no();
     const last = lastSend.get(sender);
     if (last !== undefined && now() - last < MIN_GAP_MS) return no();
@@ -108,7 +111,7 @@ function createWindowMove({ screen, isLocked, senderDisplay, targetOf, now = Dat
       timer = setTimer(() => finish(false), ARRIVE_MS);
       try {
         // Where the cursor is on that display, in its own coordinates (Z places the window so it stays under the hand).
-        wc.send('zd:window:receive', { ...win, x: point.x - b.x, y: point.y - b.y, token });
+        wc.send('zd:window:receive', { ...win, x: point.x - b.x, y: point.y - b.y, token, profile });
       } catch {
         finish(false);
       }

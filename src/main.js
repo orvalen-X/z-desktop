@@ -773,6 +773,7 @@ app.whenReady().then(() => {
     screen,
     newToken: () => randomBytes(16).toString('hex'),
     isLocked: () => lockMirror.get().locked,
+    profileOf: () => lockMirror.get().profile,
     senderDisplay: (wc) => (zView && wc === zView.webContents ? mainDisplayId() : desks ? desks.displayOf(wc) : null),
     targetOf: (id) =>
       id === mainDisplayId() ? (zView && !zView.webContents.isDestroyed() ? zView.webContents : null) : desks ? desks.webContentsOf(id) : null,
