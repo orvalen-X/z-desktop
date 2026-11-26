@@ -115,7 +115,7 @@ func (a *app) start() {
 		}()
 		fl := &Flow{
 			Client:  NewClient(),
-			Base:    releaseBase,
+			Latest:  releaseLatest,
 			WorkDir: filepath.Join(a.workDir, "dl"),
 			Sys:     &winSys{onTick: a.progress},
 			Report:  a.progress,

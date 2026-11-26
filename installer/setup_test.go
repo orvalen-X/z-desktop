@@ -196,7 +196,7 @@ func TestOnlyGitHubHostsOverHttps(t *testing.T) {
 			t.Fatal("allowed", s)
 		}
 	}
-	if !strings.HasPrefix(releaseBase, "https://github.com/orvalen-X/z-desktop/") {
+	if releaseLatest != "https://github.com/orvalen-X/z-desktop/releases/latest" {
 		t.Fatal("release base moved")
 	}
 }
@@ -238,5 +238,66 @@ func TestPartialFromTheWrongPlaceStartsOver(t *testing.T) {
 	}
 	if _, err := os.Stat(part); !errors.Is(err, os.ErrNotExist) || sys.ran.Load() != 0 {
 		t.Fatal("kept a partial file the server did not continue")
+	}
+}
+
+func TestBothFilesComeFromTheSameRelease(t *testing.T) {
+	payload := []byte("Z")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/o/z/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://"+r.Host+"/o/z/releases/tag/v0.3.0", http.StatusFound)
+	})
+	mux.HandleFunc("/o/z/releases/download/v0.3.0/SHA256SUMS.txt", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s  Z-Setup-0.3.0.exe\n", sum(payload))
+	})
+	mux.HandleFunc("/o/z/releases/download/v0.3.0/Z-Setup-0.3.0.exe", func(w http.ResponseWriter, r *http.Request) { w.Write(payload) })
+	s := httptest.NewServer(mux)
+	t.Cleanup(s.Close)
+	sys := &fakeSys{}
+	fl, _ := flow(t, "", sys)
+	fl.Base, fl.Latest = "", s.URL+"/o/z/releases/latest"
+	if err := fl.Run(context.Background()); err != nil || sys.ran.Load() != 1 {
+		t.Fatalf("got %v ran %d base %s", err, sys.ran.Load(), fl.Base)
+	}
+	for _, bad := range []string{"https://evil.com/o/z/releases/tag/v0.3.0", "/o/z/releases/tag/../../x", "/o/z/releases/tag/latest"} {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/latest", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, bad, http.StatusFound) })
+		s := httptest.NewServer(mux)
+		fl, _ := flow(t, "", &fakeSys{})
+		fl.Latest = s.URL + "/latest"
+		if err := fl.ResolveLatest(context.Background()); err == nil {
+			t.Fatalf("followed %q to %s", bad, fl.Base)
+		}
+		s.Close()
+	}
+}
+
+func TestStalledDownloadCountsAsOffline(t *testing.T) {
+	payload := []byte(strings.Repeat("s", 10000))
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	mux := http.NewServeMux()
+	mux.HandleFunc("/SHA256SUMS.txt", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s  Z-Setup-0.3.0.exe\n", sum(payload))
+	})
+	mux.HandleFunc("/Z-Setup-0.3.0.exe", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		w.Write(payload[:500])
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	})
+	s := httptest.NewServer(mux)
+	t.Cleanup(s.Close)
+	fl, _ := flow(t, s.URL, &fakeSys{})
+	fl.Stall = 300 * time.Millisecond
+	var f *Failure
+	if err := fl.Run(context.Background()); !errors.As(err, &f) || f.Kind != "off" {
+		t.Fatalf("got %v", err)
+	}
+	if st, _ := os.Stat(filepath.Join(fl.WorkDir, "Z-Setup-0.3.0.exe.part")); st == nil || st.Size() != 500 {
+		t.Fatal("what arrived was not kept")
 	}
 }

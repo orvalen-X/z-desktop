@@ -25,13 +25,17 @@ import (
 
 // Where releases live. Only these hosts are ever contacted, also after a redirect.
 const (
-	releaseBase = "https://github.com/orvalen-X/z-desktop/releases/latest/download/"
-	sumsName    = "SHA256SUMS.txt"
+	// The newest release's page. It redirects to /releases/tag/<tag>; both files are then read from that one tag,
+	// so a release published in between can never pair one release's checksums with another's installer.
+	releaseLatest = "https://github.com/orvalen-X/z-desktop/releases/latest"
+	sumsName      = "SHA256SUMS.txt"
 )
 
 var allowedHosts = []string{"github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"}
 
 // The full installer inside the release, e.g. "Z-Setup-0.3.0.exe".
+var tagPath = regexp.MustCompile(`/releases/tag/(v\d+\.\d+\.\d+)$`)
+
 var installerName = regexp.MustCompile(`^Z-Setup-(\d+\.\d+\.\d+)\.exe$`)
 
 // Phases the window shows (sketch 2).
@@ -78,8 +82,10 @@ const maxInstaller = 512 << 20
 // Flow holds one run of Z Setup.
 type Flow struct {
 	Client  *http.Client
-	Base    string // release base URL (tests point it at a local server)
-	WorkDir string // where the download is kept between attempts
+	Latest  string        // the newest release's page; Run reads its tag and sets Base from it
+	Base    string        // where the release's files are (set by Run from Latest, or by tests directly)
+	Stall   time.Duration // a download with no bytes for this long counts as a lost connection (0 = 60s)
+	WorkDir string        // where the download is kept between attempts
 	Sys     System
 	Report  func(Progress)
 	Now     func() time.Time
@@ -94,7 +100,13 @@ const (
 // NewClient refuses every redirect that leaves https or the allowed hosts.
 func NewClient() *http.Client {
 	return &http.Client{
-		Timeout: 0, // a large file on a slow line: stalls are caught by the read deadline below
+		Timeout: 0, // a large file on a slow line can take long: a stalled one is caught in Download
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			TLSHandshakeTimeout:   15 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			IdleConnTimeout:       30 * time.Second,
+		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > 8 {
 				return errors.New("too many redirects")
@@ -171,6 +183,40 @@ func (fl *Flow) get(ctx context.Context, name string, from int64) (*http.Respons
 	return fl.Client.Do(req)
 }
 
+// ResolveLatest asks the newest release's page where it points, without following it, and sets Base to that
+// release's download folder.
+func (fl *Flow) ResolveLatest(ctx context.Context) error {
+	if fl.Latest == "" {
+		return nil
+	}
+	page, err := url.Parse(fl.Latest)
+	if err != nil {
+		return bad(err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, page.String(), nil)
+	if err != nil {
+		return bad(err)
+	}
+	req.Header.Set("User-Agent", "ZSetup")
+	c := *fl.Client
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	res, err := c.Do(req)
+	if err != nil {
+		return offline(err)
+	}
+	res.Body.Close()
+	loc, err := res.Location()
+	if err != nil || res.StatusCode/100 != 3 {
+		return offline(fmt.Errorf("newest release not found: %s", res.Status))
+	}
+	m := tagPath.FindStringSubmatch(loc.Path)
+	if m == nil || loc.Scheme != page.Scheme || loc.Host != page.Host {
+		return bad(fmt.Errorf("unexpected release address %s", loc.Redacted()))
+	}
+	fl.Base = page.Scheme + "://" + page.Host + strings.TrimSuffix(loc.Path, "/tag/"+m[1]) + "/download/" + m[1] + "/"
+	return nil
+}
+
 // FindRelease reads SHA256SUMS.txt of the newest release.
 func (fl *Flow) FindRelease(ctx context.Context) (Release, error) {
 	res, err := fl.get(ctx, sumsName, 0)
@@ -190,7 +236,7 @@ func (fl *Flow) FindRelease(ctx context.Context) (Release, error) {
 
 // Download fetches the installer into WorkDir, continuing a partial file from an earlier attempt.
 func (fl *Flow) Download(ctx context.Context, rel Release) (string, error) {
-	if err := os.MkdirAll(fl.WorkDir, 0o700); err != nil {
+	if err := os.MkdirAll(fl.WorkDir, 0o700); err != nil { // on Windows the folder sits in the user's own %TEMP%
 		return "", bad(err)
 	}
 	final := filepath.Join(fl.WorkDir, rel.File)
@@ -203,8 +249,21 @@ func (fl *Flow) Download(ctx context.Context, rel Release) (string, error) {
 	if st, err := os.Stat(part); err == nil {
 		have = st.Size()
 	}
-	res, err := fl.get(ctx, rel.File, have)
+	// A download that stops sending (no reset, just silence) is ended after a quiet spell: it then counts as a
+	// lost connection, keeps what arrived, and the window offers to try again.
+	stall := fl.Stall
+	if stall <= 0 {
+		stall = 60 * time.Second
+	}
+	dctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	quiet := time.AfterFunc(stall, cancel)
+	defer quiet.Stop()
+	res, err := fl.get(dctx, rel.File, have)
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		return "", offline(err)
 	}
 	defer res.Body.Close()
@@ -247,6 +306,7 @@ func (fl *Flow) Download(ctx context.Context, rel Release) (string, error) {
 	for {
 		n, rerr := res.Body.Read(buf)
 		if n > 0 {
+			quiet.Reset(stall)
 			if _, werr := f.Write(buf[:n]); werr != nil {
 				f.Close()
 				return "", bad(werr)
@@ -347,6 +407,9 @@ func (fl *Flow) Install(ctx context.Context, path string) error {
 func (fl *Flow) Run(ctx context.Context) error {
 	if fl.Report != nil {
 		fl.Report(Progress{Phase: PhaseStart})
+	}
+	if err := fl.ResolveLatest(ctx); err != nil {
+		return err
 	}
 	rel, err := fl.FindRelease(ctx)
 	if err != nil {
