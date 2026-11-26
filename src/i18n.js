@@ -260,4 +260,10 @@ function boxText(lang, text) {
     .join('\n');
 }
 
-module.exports = { STRINGS, SUPPORTED, pickLang, strings, boxText };
+// A piece that must show exactly as written (a web address in a permission question) stays left to right and in
+// one piece inside an RTL line: left-to-right embedding (LRE ... PDF).
+function ltrRun(text) {
+  return '\u202A' + String(text) + PDF;
+}
+
+module.exports = { STRINGS, SUPPORTED, pickLang, strings, boxText, ltrRun };

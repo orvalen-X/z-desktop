@@ -123,6 +123,9 @@ test('message boxes: Hebrew and Arabic lines read right to left, others untouche
   assert.ok(i18n.boxText('ar', 'x').startsWith('\u202B'));
   for (const l of ['en', 'es', 'ru']) assert.equal(i18n.boxText(l, 'Z 0.3.3'), 'Z 0.3.3');
   assert.equal(i18n.boxText('he', ''), '');
+  // A web address in a permission question stays whole and left to right inside the Hebrew line.
+  assert.equal(i18n.boxText('he', i18n.ltrRun('maps.example.com:8080')), '\u202B\u202Amaps.example.com:8080\u202C\u202C');
+  assert.ok(/ltrRun\(new URL\(origin\)\.host\)/.test(require('node:fs').readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')));
   assert.equal(i18n.boxText('he', undefined), undefined);
   const main = require('node:fs').readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   const direct = main.match(/dialog\s*\.\s*showMessageBox\(/g) || [];

@@ -101,7 +101,7 @@ function askPermission(origin, kinds) {
     type: 'question',
     title: 'Z',
     message: s.permAsk.replace('{what}', what),
-    detail: `${new URL(origin).host}\n\n${s.permDetail}`,
+    detail: `${i18n.ltrRun(new URL(origin).host)}\n\n${s.permDetail}`,
     buttons: [s.permAllow, s.permDeny],
     defaultId: 1,
     cancelId: 1,
