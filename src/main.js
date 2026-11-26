@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Menu, dialog, shell, session, net } = require('electron');
+const { app, BaseWindow, WebContentsView, Menu, dialog, shell, session, net, ipcMain, nativeTheme } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
@@ -8,6 +8,8 @@ const cfg = require('./config');
 const i18n = require('./i18n');
 const { createPermissions } = require('./permissions');
 const { createUpdates, RELEASES_API } = require('./updates');
+const { createAutostart, autostartFromArgs } = require('./autostart');
+const pkg = require('../package.json');
 
 // One Z per computer: a second launch focuses the running one.
 if (!app.requestSingleInstanceLock()) {
@@ -19,8 +21,16 @@ const isMac = process.platform === 'darwin';
 const RETRY_STEPS_MS = [5000, 10000, 20000, 30000];
 const OFFLINE_FILE = path.join(__dirname, 'offline.html');
 const OFFLINE_URL = pathToFileURL(OFFLINE_FILE).href;
+const TITLEBAR_FILE = path.join(__dirname, 'titlebar.html');
+// Height of the window bar shown when Z leaves full screen (sketch 3). In full screen it is 0.
+const BAR_HEIGHT = 34;
+// The name people see instead of a version number (O 26.11: "Z · DNA"); the number stays for updates.
+const RELEASE_NAME = typeof pkg.zReleaseName === 'string' && pkg.zReleaseName.trim() ? pkg.zReleaseName.trim() : '';
 
+// The Z window holds two views: the window bar on top (only outside full screen) and Z below it.
 let win = null;
+let zView = null;
+let barView = null;
 let offline = false;
 let retryTimer = null;
 let prefs = { lang: null, perms: {}, updSkipped: null };
@@ -122,7 +132,7 @@ function resetPermissions() {
       if (response !== 0) return;
       permissions.reset();
       // Reload so any camera or microphone already in use is released.
-      if (win && !win.isDestroyed() && !offline) win.webContents.reload();
+      if (zView && !zView.webContents.isDestroyed() && !offline) zView.webContents.reload();
     });
 }
 
@@ -215,7 +225,7 @@ function secureWebPreferences(withPreload) {
     ...(withPreload
       ? {
           preload: path.join(__dirname, 'preload.js'),
-          additionalArguments: [`--z-desktop-version=${app.getVersion()}`],
+          additionalArguments: [`--z-desktop-version=${app.getVersion()}`, `--z-desktop-release=${RELEASE_NAME}`],
         }
       : {}),
   };
@@ -267,7 +277,7 @@ function showOffline() {
   if (!win || win.isDestroyed()) return;
   offline = true;
   const s = t();
-  win.loadFile(OFFLINE_FILE, {
+  zView.webContents.loadFile(OFFLINE_FILE, {
     query: {
       lang: lang(),
       dir: s.dir,
@@ -296,14 +306,14 @@ function scheduleRetry() {
 function loadZ() {
   offline = false;
   clearTimeout(retryTimer);
-  win.loadURL(cfg.START_URL);
+  zView.webContents.loadURL(cfg.START_URL);
 }
 
 // ---------- the Z window ----------
 
 function rememberZLanguage() {
-  if (!win || win.isDestroyed() || !cfg.isAppUrl(win.webContents.getURL())) return;
-  win.webContents
+  if (!zView || zView.webContents.isDestroyed() || !cfg.isAppUrl(zView.webContents.getURL())) return;
+  zView.webContents
     .executeJavaScript('document.documentElement.lang', true)
     .then((l) => {
       const code = i18n.pickLang(l, []);
@@ -317,55 +327,162 @@ function rememberZLanguage() {
     .catch(() => {});
 }
 
-function toggleFullscreen() {
-  if (!win || win.isDestroyed()) return;
-  win.setFullScreen(!win.isFullScreen());
+// ---------- full screen and the window bar ----------
+
+const isFullscreen = () => !!win && !win.isDestroyed() && win.isFullScreen();
+
+function barColors() {
+  const dark = nativeTheme.shouldUseDarkColors;
+  return { color: dark ? '#1c1f26' : '#eef1f5', symbolColor: dark ? '#e9edf3' : '#1b2028', height: BAR_HEIGHT };
 }
 
+// Full screen: Z fills everything. Outside it: the window bar on top and Z below, never on top of each other.
+function layout() {
+  if (!win || win.isDestroyed() || !zView) return;
+  const { width, height } = win.getContentBounds();
+  const bar = isFullscreen() ? 0 : BAR_HEIGHT;
+  barView.setVisible(bar > 0);
+  barView.setBounds({ x: 0, y: 0, width, height: bar });
+  zView.setBounds({ x: 0, y: bar, width, height: Math.max(0, height - bar) });
+}
+
+function tellZ() {
+  if (zView && !zView.webContents.isDestroyed()) zView.webContents.send('zd:fs', isFullscreen());
+}
+
+// The one way full screen changes: F11, the Mac menu, and the top-bar button in Z all come here.
+// Leaving full screen gives a maximized window (O 26.11: Z keeps its size, the system's bars appear around it).
+function setFullscreen(on) {
+  if (!win || win.isDestroyed()) return false;
+  if (on !== isFullscreen()) win.setFullScreen(on);
+  return on;
+}
+function toggleFullscreen() {
+  return setFullscreen(!isFullscreen());
+}
+
+// ---------- requests from Z's page ----------
+
+// Only Z's own page may ask: the top frame of the Z view, on Z's address. App frames inside Z never get here
+// (the preload runs only in the top frame), and this check refuses them even if they tried.
+function fromZ(event) {
+  const wc = zView && zView.webContents;
+  const frame = event.senderFrame;
+  return !!wc && event.sender === wc && !!frame && frame === wc.mainFrame && cfg.isAppUrl(frame.url);
+}
+
+const autostart = createAutostart({
+  app,
+  platform: process.platform,
+  env: process.env,
+  fs,
+  path,
+  homedir: app.getPath('home'),
+  execPath: process.execPath,
+});
+
+function listenToZ() {
+  ipcMain.handle('zd:fs:get', (e) => (fromZ(e) ? isFullscreen() : false));
+  ipcMain.handle('zd:fs:set', (e, on) => (fromZ(e) && typeof on === 'boolean' ? setFullscreen(on) : isFullscreen()));
+  ipcMain.handle('zd:fs:toggle', (e) => (fromZ(e) ? toggleFullscreen() : isFullscreen()));
+  ipcMain.handle('zd:autostart:get', (e) => (fromZ(e) ? autostart.get() : { supported: false, enabled: false }));
+  ipcMain.handle('zd:autostart:set', (e, on) =>
+    fromZ(e) && typeof on === 'boolean' ? autostart.set(on) : { supported: false, enabled: false },
+  );
+}
+
+// ---------- the Z window ----------
+
 function createWindow() {
-  win = new BrowserWindow({
+  win = new BaseWindow({
     width: 1440,
     height: 900,
     minWidth: 1024,
     minHeight: 640,
     show: false,
+    // Z always opens in full screen, also when it starts with the computer (O 26.11).
     fullscreen: true,
     fullscreenable: true,
     autoHideMenuBar: true,
     backgroundColor: '#2b2b2d',
-    title: 'Z',
+    title: RELEASE_NAME ? `Z ${RELEASE_NAME}` : 'Z',
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
-    webPreferences: secureWebPreferences(true),
+    // Our own window bar (sketch 3); the system keeps drawing its window buttons over it.
+    titleBarStyle: 'hidden',
+    ...(isMac ? { trafficLightPosition: { x: 12, y: 10 } } : { titleBarOverlay: barColors() }),
   });
 
-  win.webContents.setUserAgent(userAgent());
+  barView = new WebContentsView({ webPreferences: secureWebPreferences(false) });
+  barView.setBackgroundColor(barColors().color);
+  barView.webContents.loadFile(TITLEBAR_FILE, { query: { name: RELEASE_NAME || app.getVersion() } });
+  barView.webContents.on('will-navigate', (event) => event.preventDefault());
 
-  win.once('ready-to-show', () => win.show());
+  zView = new WebContentsView({ webPreferences: secureWebPreferences(true) });
+  zView.setBackgroundColor('#2b2b2d');
+  zView.webContents.setUserAgent(userAgent());
+
+  win.contentView.addChildView(zView);
+  win.contentView.addChildView(barView);
+  layout();
+
+  // Show once Z has something to paint (or after a moment, so a slow network never hides the window).
+  let shown = false;
+  const show = () => {
+    if (shown || !win || win.isDestroyed()) return;
+    shown = true;
+    win.show();
+    zView.webContents.focus();
+  };
+  zView.webContents.once('dom-ready', show);
+  zView.webContents.once('did-fail-load', show);
+  setTimeout(show, 3000);
+
+  win.on('resize', layout);
+  win.on('enter-full-screen', () => {
+    layout();
+    tellZ();
+  });
+  win.on('leave-full-screen', () => {
+    if (!win.isMaximized()) win.maximize();
+    layout();
+    tellZ();
+  });
+  win.on('focus', () => zView && !zView.webContents.isDestroyed() && zView.webContents.focus());
+
+  nativeTheme.on('updated', () => {
+    if (!win || win.isDestroyed()) return;
+    barView.setBackgroundColor(barColors().color);
+    if (!isMac) win.setTitleBarOverlay(barColors());
+  });
 
   // F11 everywhere (and Ctrl+Cmd+F on Mac through the menu) switches full screen.
-  win.webContents.on('before-input-event', (event, input) => {
+  zView.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && input.key === 'F11' && !input.alt && !input.control && !input.meta) {
       event.preventDefault();
       toggleFullscreen();
     }
   });
 
-  win.webContents.on('did-fail-load', (event, code, desc, url, isMainFrame) => {
+  zView.webContents.on('did-fail-load', (event, code, desc, url, isMainFrame) => {
     // -3 = a navigation was replaced by another one: not a failure.
     if (isMainFrame && code !== -3 && cfg.isInWindowUrl(url)) showOffline();
   });
-  win.webContents.on('did-navigate', (event, url) => {
+  zView.webContents.on('did-navigate', (event, url) => {
     if (cfg.isInWindowUrl(url)) {
       offline = false;
       retryStep = 0;
       clearTimeout(retryTimer);
     }
   });
-  win.webContents.on('did-finish-load', rememberZLanguage);
-  win.webContents.on('did-navigate-in-page', rememberZLanguage);
+  zView.webContents.on('did-finish-load', rememberZLanguage);
+  zView.webContents.on('did-navigate-in-page', rememberZLanguage);
 
   win.on('closed', () => {
+    // Views are not closed with the window: close them, so nothing keeps running.
+    for (const v of [zView, barView]) if (v && !v.webContents.isDestroyed()) v.webContents.close();
     win = null;
+    zView = null;
+    barView = null;
     clearTimeout(retryTimer);
   });
 
@@ -415,10 +532,10 @@ function buildMenu() {
     {
       label: s.menuView,
       submenu: [
-        { label: s.menuReload, accelerator: 'Cmd+R', click: () => (offline ? loadZ() : win && win.webContents.reload()) },
+        { label: s.menuReload, accelerator: 'Cmd+R', click: () => (offline ? loadZ() : zView && zView.webContents.reload()) },
         { type: 'separator' },
-        { role: 'togglefullscreen', label: s.menuFullscreen },
-        ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' }]),
+        { label: s.menuFullscreen, accelerator: 'Ctrl+Cmd+F', click: toggleFullscreen },
+        ...(app.isPackaged ? [] : [{ label: 'Developer tools', click: () => zView && zView.webContents.toggleDevTools() }]),
       ],
     },
     { label: s.menuWindow, submenu: [{ role: 'minimize' }, { role: 'zoom' }, { role: 'front' }] },
@@ -465,6 +582,8 @@ app.on('second-instance', (event, argv) => {
   if (!win) return;
   if (argv.includes(RESET_ARG)) resetPermissions();
   if (argv.includes(UPDATE_ARG)) updates.checkNow();
+  const startWithComputer = autostartFromArgs(argv);
+  if (startWithComputer !== null) autostart.set(startWithComputer);
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
@@ -477,6 +596,10 @@ app.whenReady().then(() => {
   app.userAgentFallback = userAgent();
   loadPrefs();
   hardenSession(session.defaultSession);
+  // The installer passes the person's "start with the computer" checkbox once, on the first start.
+  const startWithComputer = autostartFromArgs(process.argv);
+  if (startWithComputer !== null) autostart.set(startWithComputer);
+  listenToZ();
   buildMenu();
   buildIconMenu();
   createWindow();

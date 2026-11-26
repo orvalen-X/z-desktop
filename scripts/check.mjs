@@ -15,7 +15,7 @@ const test = (name, fn) => {
   }
 };
 
-for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js']) {
+for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js', 'src/autostart.js']) {
   test(`syntax ${f}`, () => execFileSync(process.execPath, ['--check', f]));
 }
 
@@ -201,6 +201,93 @@ try {
 } catch (e) {
   failed++;
   console.log('FAIL updates notice', '\n     ', e.message);
+}
+
+// ---------- start with the computer ----------
+const auto = require('../src/autostart.js');
+test('installer checkbox arrives as --autostart=on/off, nothing else counts', () => {
+  assert.equal(auto.autostartFromArgs(['x', '--autostart=on']), true);
+  assert.equal(auto.autostartFromArgs(['--autostart=off']), false);
+  assert.equal(auto.autostartFromArgs(['--autostart', '--autostart=yes']), null);
+});
+test('Linux autostart entry: quoted path per the Desktop Entry spec, starts with --autostart', () => {
+  const exec = (p) => auto.linuxEntry(p).split('\n').find((l) => l.startsWith('Exec='));
+  assert.equal(exec('/opt/Z/z-desktop'), 'Exec="/opt/Z/z-desktop" --autostart');
+  // $ and " get \ inside the quotes, and that \ is doubled by the string escape
+  assert.equal(exec('/home/a b/Z $x".AppImage'), 'Exec="/home/a b/Z \\\\$x\\\\".AppImage" --autostart');
+  // a literal backslash becomes four; % is never a field code
+  assert.equal(exec('/h/a\\b%f'), 'Exec="/h/a\\\\\\\\b%%f" --autostart');
+  assert.match(auto.linuxEntry('/opt/Z/z'), /^Type=Application$/m);
+});
+test('Linux autostart: a path with a line break or other control character is refused, nothing written', () => {
+  for (const bad of ['/tmp/x\nExec=evil', '/tmp/x\rY', '/tmp/\tz', '/tmp/\u0000'])
+    assert.throws(() => auto.linuxEntry(bad), /unsafe path/);
+  const files = {};
+  const fakeFs = { existsSync: (f) => f in files, mkdirSync: () => {}, writeFileSync: (f, d) => (files[f] = d), unlinkSync: (f) => delete files[f] };
+  const a = auto.createAutostart({ app: { isPackaged: true }, platform: 'linux', env: { APPIMAGE: '/tmp/x\nExec=evil' }, fs: fakeFs, path: require('node:path').posix, homedir: '/home/u', execPath: '/opt/Z/z' });
+  assert.deepEqual(a.set(true), { supported: true, enabled: false });
+  assert.equal(Object.keys(files).length, 0);
+});
+test('autostart: never registered while developing, Linux file on and off', () => {
+  const files = {};
+  const fakeFs = {
+    existsSync: (f) => f in files,
+    mkdirSync: () => {},
+    writeFileSync: (f, d) => (files[f] = d),
+    unlinkSync: (f) => delete files[f],
+  };
+  const path = require('node:path').posix; // Linux paths, also when the checks run on Windows
+  const mk = (isPackaged, env = {}) =>
+    auto.createAutostart({ app: { isPackaged }, platform: 'linux', env, fs: fakeFs, path, homedir: '/home/u', execPath: '/opt/Z/z-desktop' });
+  assert.deepEqual(mk(false).set(true), { supported: false, enabled: false });
+  assert.equal(Object.keys(files).length, 0);
+  const a = mk(true, { APPIMAGE: '/home/u/Z.AppImage' });
+  assert.deepEqual(a.set(true), { supported: true, enabled: true });
+  assert.match(files['/home/u/.config/autostart/z-desktop.desktop'], /Exec="\/home\/u\/Z\.AppImage" --autostart/);
+  assert.deepEqual(a.set(false), { supported: true, enabled: false });
+  assert.equal(Object.keys(files).length, 0);
+});
+test('autostart: Windows registers with --autostart, Mac without arguments', () => {
+  const calls = [];
+  const app = { isPackaged: true, setLoginItemSettings: (o) => calls.push(o), getLoginItemSettings: () => ({ openAtLogin: calls.at(-1)?.openAtLogin }) };
+  const path = require('node:path');
+  auto.createAutostart({ app, platform: 'win32', env: {}, fs: {}, path, homedir: 'C:\\u', execPath: 'C:\\Z\\Z.exe' }).set(true);
+  assert.deepEqual(calls[0], { openAtLogin: true, args: ['--autostart'] });
+  const r = auto.createAutostart({ app, platform: 'darwin', env: {}, fs: {}, path, homedir: '/Users/u', execPath: '/Applications/Z.app' }).set(false);
+  assert.deepEqual(calls[1], { openAtLogin: false });
+  assert.deepEqual(r, { supported: true, enabled: false });
+});
+
+// ---------- local pages: their one inline script must match the hash in their own CSP ----------
+{
+  const { readFileSync } = await import('node:fs');
+  const { createHash } = await import('node:crypto');
+  for (const f of ['src/offline.html', 'src/titlebar.html']) {
+    test(`${f}: CSP hash matches its script`, () => {
+      const html = readFileSync(f, 'utf8');
+      const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+      const hash = createHash('sha256').update(script).digest('base64');
+      assert.ok(html.includes(`'sha256-${hash}'`), `expected sha256-${hash}`);
+      assert.ok(!/<script\s+src=/i.test(html), 'no outside scripts');
+    });
+  }
+}
+
+// ---------- the page API: only these names, and the release name travels with the version ----------
+test('preload exposes only the full-screen and autostart calls', () => {
+  const src = readFileSyncSafe('src/preload.js');
+  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'"].includes(ch), ch);
+  assert.ok(!/require\('(?!electron')/.test(src), 'preload requires only electron');
+});
+test('main checks every Z request comes from Z itself', () => {
+  const src = readFileSyncSafe('src/main.js');
+  const handlers = src.match(/ipcMain\.handle\('zd:[a-z:]+', \([^)]*\) =>\s*\(?\s*fromZ\(e\)/g) || [];
+  assert.equal(handlers.length, (src.match(/ipcMain\.handle\(/g) || []).length);
+  assert.equal(handlers.length, 5);
+});
+
+function readFileSyncSafe(f) {
+  return require('node:fs').readFileSync(f, 'utf8');
 }
 
 if (failed) {
