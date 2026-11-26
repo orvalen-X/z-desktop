@@ -88,13 +88,13 @@ const maxInstaller = 512 << 20
 // Flow holds one run of Z Setup.
 type Flow struct {
 	Client *http.Client
-	Latest string // the newest release's page; Run reads its tag and sets Base from it
-	Base   string // where the release's files are (set by Run from Latest, or by tests directly)
-	Tag    string // the release tag Run resolved (e.g. "v0.3.0"); "" when Base was set directly
-	Stall  time.Duration
-	// InstallWait is how long a failed installer start waits for Z to turn up anyway (0 = 20s).
-	InstallWait time.Duration // a download with no bytes for this long counts as a lost connection (0 = 60s)
-	WorkDir     string        // where the download is kept between attempts
+	Latest string        // the newest release's page; Run reads its tag and sets Base from it
+	Base   string        // where the release's files are (set by Run from Latest, or by tests directly)
+	Tag    string        // the release tag Run resolved (e.g. "v0.3.0"); "" when Base was set directly
+	Stall  time.Duration // a download with no bytes for this long counts as a lost connection (0 = 60s)
+	// InstallWait is how long a failed installer start waits for Z to turn up anyway (0 = 30s).
+	InstallWait time.Duration
+	WorkDir     string // where the download is kept between attempts
 	Sys         System
 	Report      func(Progress)
 	Now         func() time.Time
@@ -413,7 +413,7 @@ func (fl *Flow) Install(ctx context.Context, path, version string) error {
 	}
 	wait := fl.InstallWait
 	if wait <= 0 {
-		wait = 20 * time.Second
+		wait = 30 * time.Second
 	}
 	var err error
 	for try := 1; try <= installTries; try++ {

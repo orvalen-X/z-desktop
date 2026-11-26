@@ -191,7 +191,11 @@ func (a *app) close() {
 
 // logf keeps a short record in %TEMP%\ZSetup\setup.log, so a failure on someone's computer can be explained.
 func (a *app) logf(format string, args ...any) {
-	f, err := os.OpenFile(filepath.Join(a.workDir, "setup.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	path := filepath.Join(a.workDir, "setup.log")
+	if st, err := os.Stat(path); err == nil && st.Size() > 256<<10 {
+		_ = os.Remove(path) // keep it small: only the latest runs matter
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return
 	}
