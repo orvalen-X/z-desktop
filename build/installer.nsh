@@ -1,9 +1,17 @@
 ; Z's uninstaller leaves nothing behind (O 26.11): installing again starts from zero, like a new computer.
 ; electron-builder already removes %APPDATA%\Z (sign-in, settings, cache) with nsis.deleteAppDataOnUninstall.
-; This adds what it does not know about. An update (the uninstaller run with --updated) keeps everything.
+; This adds what it does not know about (it removes HKCU\Software\<guid> itself, at the end). An update (the uninstaller run with --updated) keeps everything.
 
 !macro zRemoveRunValues ROOTKEY
   ; "Start Z with the computer": any value of this user's Run list that starts this Z.exe.
+  ; The registers are saved and given back: the uninstaller around this macro may still use them.
+  Push $R0
+  Push $R1
+  Push $R2
+  Push $R3
+  Push $R4
+  Push $R5
+  Push $R6
   StrCpy $R0 0
   StrLen $R4 '"$INSTDIR\Z.exe"'
   StrLen $R5 '$INSTDIR\Z.exe'
@@ -23,16 +31,23 @@
       IntOp $R0 $R0 + 1
     ${EndIf}
   ${Loop}
+  Pop $R6
+  Pop $R5
+  Pop $R4
+  Pop $R3
+  Pop $R2
+  Pop $R1
+  Pop $R0
 !macroend
 
 !macro customUnInstall
   ${ifNot} ${isUpdated}
-    !insertmacro zRemoveRunValues "Software\Microsoft\Windows\CurrentVersion\Run"
+    ${If} $INSTDIR != ""
+      !insertmacro zRemoveRunValues "Software\Microsoft\Windows\CurrentVersion\Run"
+    ${EndIf}
     ; The updater's downloads and the stored install package.
     RMDir /r "$LOCALAPPDATA\z-desktop-updater"
     ; Z Setup's folder (its download, if any, and setup.log).
     RMDir /r "$TEMP\ZSetup"
-    ; Where electron-builder keeps where Z was installed.
-    DeleteRegKey HKCU "Software\${APP_GUID}"
   ${endIf}
 !macroend
