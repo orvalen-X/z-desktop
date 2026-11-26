@@ -314,7 +314,7 @@ window.zs={
   if(S.newer&&S.ph==="have"){S.ph="upd";texts();}else ver();},
  progress(o){const changed=o.phase!==S.ph;S.ph=o.phase;S.p=Math.max(S.p,o.p||0);S.done=o.done||S.done;S.total=o.total||S.total;S.secs=o.secs||0;if(changed)texts();else numbers();},
  fail(kind,detail){win.classList.remove("full");$("mwait").textContent="";S.ph=["off","inst"].includes(kind)?kind:"bad";S.det=typeof detail==="string"?detail.slice(0,160):"";texts();},
- ready(){S.ph="rd";S.p=1;texts();$("mwait").textContent=T[S.lang].rdW;setTimeout(()=>{S.shown=1;numbers();win.classList.add("full")},900);},
+ ready(){S.ph="rd";S.p=1;texts();$("mwait").textContent=T[S.lang].rdW;setTimeout(()=>{if(S.ph!=="rd")return;S.shown=1;numbers();win.classList.add("full")},900);},
  // Z's own window is on the screen: fade out over it, then the Go side closes this window.
  bye(){win.classList.add("bye");}
 };
