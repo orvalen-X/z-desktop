@@ -11,6 +11,7 @@ const { createPermissions } = require('./permissions');
 const { createUpdates, RELEASES_API } = require('./updates');
 const { createAutostart, autostartFromArgs } = require('./autostart');
 const { createDisplays } = require('./displays');
+const { createNavigationGuard } = require('./navGuard');
 const pkg = require('../package.json');
 
 // One Z per computer: a second launch focuses the running one.
@@ -183,14 +184,8 @@ function explainGoogle() {
 }
 
 function guardContents(wc) {
-  // Navigation inside the window: only Z.
-  const onNavigate = (event, url) => {
-    if (url.split('?')[0] === OFFLINE_URL) return;
-    if (cfg.isInWindowUrl(url)) return;
-    event.preventDefault();
-    if (cfg.isGoogleSignIn(url)) explainGoogle();
-    else openOutside(url);
-  };
+  // Navigation inside the window: the top stays on Z; frames inside Z navigate like in any browser (navGuard.js).
+  const onNavigate = createNavigationGuard({ cfg, offlineUrl: OFFLINE_URL, openOutside, explainGoogle });
   wc.on('will-navigate', onNavigate);
   wc.on('will-redirect', onNavigate);
 
