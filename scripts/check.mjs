@@ -96,6 +96,11 @@ const permTest = async () => {
   assert.equal(p.check(APP, 'geolocation', {}, 'https://sub.orvalen.me'), false);
   assert.equal(asked, 3, 'a frame never adds a dialog for what Z already answered');
   assert.equal(saved[APP] || saved['https://onlycalls.example.workers.dev'], undefined, 'nothing saved under the frame');
+  assert.equal(await p.request(APP, 'media', { mediaTypes: ['video'] }, Z), true, 'camera: Z said yes above');
+  delete saved['https://orvalen.me'].camera;
+  assert.equal(await p.request(APP, 'media', { mediaTypes: ['video'] }, Z), false, 'Z has not answered: a frame gets no dialog');
+  assert.equal(asked, 3, 'still no dialog from a frame');
+  assert.equal(saved['https://orvalen.me'].camera, undefined, 'and adds no answer');
   // reset forgets everything
   p.reset();
   assert.equal(p.check(Z, 'media', { mediaType: 'video' }), false);

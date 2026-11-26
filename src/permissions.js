@@ -34,8 +34,9 @@ function kindsFor(permission, details) {
 // The site that answers for a request (O 25.11). Z's own pages answer for themselves. An app inside Z runs in a frame
 // from its own address (OnlyCalls: a workers.dev site); Chromium lets that frame ask only for what Z's iframe
 // `allow` delegates to it, and then, as in a browser, the answer belongs to the top-level site, Z. So a frame counts
-// only for camera, microphone and location, only while the window's top page is Z, and is saved under Z's origin.
-// Anything else from a frame (notifications, clipboard, ...) stays refused.
+// only for camera, microphone and location, only while the window's top page is Z, and only with Z's own saved yes:
+// a frame never opens a dialog and never adds an answer (Z asks on its own page first, z#517). Anything else from a
+// frame (notifications, clipboard, ...) stays refused.
 function scopeOf(url, topUrl, permission) {
   if (cfg.isAppUrl(url)) return { origin: originOf(url), framed: false };
   if (topUrl && cfg.isAppUrl(topUrl) && (permission === 'geolocation' || permission === 'media')) {
@@ -66,6 +67,7 @@ function createPermissions({ store, ask }) {
     if (!kinds.length) return Promise.resolve(false);
     const known = saved(origin, kinds);
     if (known !== undefined) return Promise.resolve(known);
+    if (scope.framed) return Promise.resolve(false); // Z has not answered yet: Z asks on its own page, not a frame
     // One dialog at a time; a second request for the same thing reuses the first answer.
     const run = queue.then(async () => {
       const again = saved(origin, kinds);
