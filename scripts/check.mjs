@@ -15,7 +15,7 @@ const test = (name, fn) => {
   }
 };
 
-for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js', 'src/autostart.js', 'src/displays.js']) {
+for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js', 'src/autostart.js', 'src/displays.js', 'src/navGuard.js']) {
   test(`syntax ${f}`, () => execFileSync(process.execPath, ['--check', f]));
 }
 
@@ -380,6 +380,31 @@ test('main checks every Z request comes from Z itself', () => {
     assert.ok(!/<script\s+src=/i.test(html));
   });
 }
+
+test('navigation: the top stays on Z, frames inside Z follow their own redirects', () => {
+  const { createNavigationGuard } = require('../src/navGuard.js');
+  const opened = [];
+  let google = 0;
+  const guard = createNavigationGuard({ cfg, offlineUrl: 'file:///z/offline.html', openOutside: (u) => opened.push(u), explainGoogle: () => google++ });
+  const ev = (isMainFrame) => ({ isMainFrame, stopped: false, preventDefault() { this.stopped = true; } });
+  const run = (url, main) => { const e = ev(main); guard(e, url); return e.stopped; };
+  // a site in a ZeuS frame redirects (example.com -> www.example.com): it stays in its frame
+  assert.equal(run('https://www.example.com/home', false), false);
+  assert.equal(run('https://accounts.google.com/x', false), false);
+  // the top of the window leaving Z is stopped and opens outside; Google gets the explanation
+  assert.equal(run('https://evil.example/', true), true);
+  assert.equal(run('https://accounts.google.com/o/oauth2/auth', true), true);
+  // no isMainFrame (unknown) counts as the top
+  assert.equal(run('https://evil.example/2', undefined), true);
+  // Z itself and the offline page stay
+  assert.equal(run(cfg.START_URL, true), false);
+  assert.equal(run('file:///z/offline.html?r=1', true), false);
+  assert.deepEqual(opened, ['https://evil.example/', 'https://evil.example/2']);
+  assert.equal(google, 1);
+  const main = readFileSyncSafe('src/main.js');
+  assert.ok(/wc\.on\('will-navigate', onNavigate\)/.test(main) && /wc\.on\('will-redirect', onNavigate\)/.test(main));
+  assert.ok(/createNavigationGuard\(/.test(main));
+});
 
 function readFileSyncSafe(f) {
   return require('node:fs').readFileSync(f, 'utf8');
