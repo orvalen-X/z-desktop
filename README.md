@@ -55,7 +55,7 @@ Each version has a name, shown in the window bar instead of a number: this one i
 ## What Z's page can ask the app
 
 Only Z's own page (the top frame on orvalen.me, never an app frame inside it) gets `window.zDesktop`:
-`fullscreen.get() / set(on) / toggle() / onChange(fn)` and `autostart.get() / set(on)`. Nothing else: no files, no system, no network.
+`fullscreen.get() / set(on) / toggle() / onChange(fn)`, `autostart.get() / set(on)`, and (api 2) `displays.list() / onChange(fn) / identify() / openSystemSettings()`. The display calls only read: which displays are connected, their size, scale, rotation and refresh rate. They never change the system, and display facts go only to Z's page on this computer. Nothing else: no files, no system, no network.
 
 ## What the app does, and what it doesn't
 

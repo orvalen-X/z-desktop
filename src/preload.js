@@ -3,7 +3,9 @@
 // What the wrapper tells Z, and the only things Z may ask of it:
 // - that it runs inside the desktop app, on which system, at which version and release name;
 // - full screen: read it, switch it, hear when it changes (the top-bar button, O 26.11);
-// - "start Z when the computer starts": read it and switch it.
+// - "start Z when the computer starts": read it and switch it;
+// - displays (api 2): read the connected displays, hear when they change, show a number on each, open the system's
+//   display settings. Nothing that changes the system.
 // No file, system or network access is exposed to the page. The main process also checks that each request
 // comes from Z's own page (not from an app frame inside it) before it does anything.
 
@@ -14,22 +16,34 @@ const arg = (name) => {
   return a ? a.slice(name.length + 3) : '';
 };
 
-const fsListeners = new Set();
-ipcRenderer.on('zd:fs', (_event, on) => {
-  for (const fn of fsListeners) {
+function fanOut(set, value) {
+  for (const fn of set) {
     try {
-      fn(on === true);
+      fn(value);
     } catch {
       /* one listener failing does not stop the others */
     }
   }
-});
+}
+function subscribe(set, fn) {
+  if (typeof fn !== 'function') return () => {};
+  set.add(fn);
+  return () => {
+    set.delete(fn);
+  };
+}
+
+const fsListeners = new Set();
+ipcRenderer.on('zd:fs', (_event, on) => fanOut(fsListeners, on === true));
+
+const displayListeners = new Set();
+ipcRenderer.on('zd:displays', (_event, snap) => fanOut(displayListeners, snap));
 
 contextBridge.exposeInMainWorld(
   'zDesktop',
   Object.freeze({
     isDesktopApp: true,
-    api: 1,
+    api: 2,
     platform: process.platform,
     version: arg('z-desktop-version'),
     release: arg('z-desktop-release'),
@@ -37,17 +51,17 @@ contextBridge.exposeInMainWorld(
       get: () => ipcRenderer.invoke('zd:fs:get'),
       set: (on) => ipcRenderer.invoke('zd:fs:set', on === true),
       toggle: () => ipcRenderer.invoke('zd:fs:toggle'),
-      onChange: (fn) => {
-        if (typeof fn !== 'function') return () => {};
-        fsListeners.add(fn);
-        return () => {
-          fsListeners.delete(fn);
-        };
-      },
+      onChange: (fn) => subscribe(fsListeners, fn),
     }),
     autostart: Object.freeze({
       get: () => ipcRenderer.invoke('zd:autostart:get'),
       set: (on) => ipcRenderer.invoke('zd:autostart:set', on === true),
+    }),
+    displays: Object.freeze({
+      list: () => ipcRenderer.invoke('zd:displays:get'),
+      onChange: (fn) => subscribe(displayListeners, fn),
+      identify: () => ipcRenderer.invoke('zd:displays:identify'),
+      openSystemSettings: () => ipcRenderer.invoke('zd:displays:settings'),
     }),
   }),
 );

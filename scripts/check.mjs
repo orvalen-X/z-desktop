@@ -15,7 +15,7 @@ const test = (name, fn) => {
   }
 };
 
-for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js', 'src/autostart.js']) {
+for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js', 'src/autostart.js', 'src/displays.js']) {
   test(`syntax ${f}`, () => execFileSync(process.execPath, ['--check', f]));
 }
 
@@ -262,7 +262,7 @@ test('autostart: Windows registers with --autostart, Mac without arguments', () 
 {
   const { readFileSync } = await import('node:fs');
   const { createHash } = await import('node:crypto');
-  for (const f of ['src/offline.html', 'src/titlebar.html']) {
+  for (const f of ['src/offline.html', 'src/titlebar.html', 'src/identify.html']) {
     test(`${f}: CSP hash matches its script`, () => {
       const html = readFileSync(f, 'utf8');
       const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
@@ -274,17 +274,98 @@ test('autostart: Windows registers with --autostart, Mac without arguments', () 
 }
 
 // ---------- the page API: only these names, and the release name travels with the version ----------
-test('preload exposes only the full-screen and autostart calls', () => {
+test('preload exposes only the full-screen, autostart and display-reading calls', () => {
   const src = readFileSyncSafe('src/preload.js');
-  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'"].includes(ch), ch);
+  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'"].includes(ch), ch);
+  assert.ok(/api: 2,/.test(src), 'api 2');
   assert.ok(!/require\('(?!electron')/.test(src), 'preload requires only electron');
 });
 test('main checks every Z request comes from Z itself', () => {
   const src = readFileSyncSafe('src/main.js');
   const handlers = src.match(/ipcMain\.handle\('zd:[a-z:]+', \([^)]*\) =>\s*\(?\s*fromZ\(e\)/g) || [];
   assert.equal(handlers.length, (src.match(/ipcMain\.handle\(/g) || []).length);
-  assert.equal(handlers.length, 5);
+  assert.equal(handlers.length, 8);
 });
+
+// ---------- displays (layer 0): read only, numbers only, fixed system-settings targets ----------
+{
+  const { createDisplays, describe, linuxSettingsTarget } = require('../src/displays.js');
+  const listeners = {};
+  const D = (id, x, w, h, scale, extra = {}) => ({ id, label: 'Mon ' + id, bounds: { x, y: 0, width: w, height: h }, workArea: { x, y: 0, width: w, height: h - 40 }, scaleFactor: scale, rotation: 0, displayFrequency: 60, internal: false, touchSupport: 'unknown', ...extra });
+  let list = [D(1, 0, 1536, 960, 1.25, { internal: true, displayFrequency: 120 }), D(2, -1920, 1920, 1080, 1)];
+  const fakeScreen = {
+    getAllDisplays: () => list,
+    getPrimaryDisplay: () => list[0],
+    getDisplayMatching: () => list[1],
+    on: (ev, fn) => (listeners[ev] = fn),
+  };
+  const timers = [];
+  const fakeTimers = { setTimeout: (fn) => (timers.push(fn), timers.length), clearTimeout: () => {} };
+  const sent = [], opened = [], spawned = [], made = [];
+  class FakeWin {
+    constructor(o) { this.o = o; this.destroyed = false; made.push(this); this.webContents = { on() {}, setWindowOpenHandler() {} }; }
+    setIgnoreMouseEvents(v) { this.ignore = v; }
+    once() {}
+    loadFile(f, q) { this.file = f; this.query = q.query; }
+    isDestroyed() { return this.destroyed; }
+    destroy() { this.destroyed = true; }
+  }
+  const mk = (platform, env = {}) => createDisplays({
+    screen: fakeScreen, BrowserWindow: FakeWin, platform, env, identifyFile: 'identify.html', webPreferences: { sandbox: true },
+    shell: { openExternal: (u) => (opened.push(u), Promise.resolve()) },
+    spawn: (cmd, args) => (spawned.push([cmd, ...args]), { on() {}, unref() {} }),
+    zWindow: () => ({ isDestroyed: () => false, getBounds: () => ({}) }),
+    send: (s) => sent.push(s), timers: fakeTimers,
+  });
+  test('displays: snapshot describes every display in DIP and pixels', () => {
+    const s = mk('win32').snapshot();
+    assert.equal(s.displays.length, 2);
+    const [a, b] = s.displays;
+    assert.deepEqual(a.pixels, { width: 1920, height: 1200 });
+    assert.equal(a.primary, true); assert.equal(a.internal, true); assert.equal(a.refreshRate, 120);
+    assert.equal(b.hasZ, true); assert.equal(b.id, '2'); assert.equal(b.bounds.x, -1920);
+    assert.equal(s.system.canChange, false);
+  });
+  test('displays: odd values are cleaned', () => {
+    const d = describe({ id: 3, label: 'x'.repeat(200), bounds: { x: NaN }, scaleFactor: 0, rotation: 45 }, 1, 2);
+    assert.equal(d.label.length, 80); assert.equal(d.scaleFactor, 1); assert.equal(d.rotation, 0); assert.equal(d.bounds.x, 0);
+  });
+  test('displays: a burst of system events reaches Z once', () => {
+    const m = mk('win32'); m.listen();
+    for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) assert.equal(typeof listeners[ev], 'function');
+    sent.length = 0; timers.length = 0;
+    listeners['display-added'](); listeners['display-metrics-changed'](); listeners['display-metrics-changed']();
+    timers[timers.length - 1]();
+    assert.equal(sent.length, 1);
+  });
+  test('displays: identify shows numbers 1..n, click-through, then closes', () => {
+    made.length = 0; timers.length = 0;
+    const m = mk('win32');
+    assert.deepEqual(m.identify(), { shown: 2 });
+    assert.deepEqual(made.map((w) => w.query.n), ['1', '2']);
+    assert.ok(made.every((w) => w.ignore === true && w.o.focusable === false && w.o.frame === false));
+    assert.deepEqual(m.identify(), { shown: 2 }, 'a second press while showing opens nothing new');
+    assert.equal(made.length, 2);
+    timers[timers.length - 1]();
+    assert.ok(made.every((w) => w.destroyed));
+  });
+  test('displays: system settings open only fixed targets', () => {
+    opened.length = 0; spawned.length = 0;
+    mk('win32').openSystemSettings(); mk('darwin').openSystemSettings();
+    assert.deepEqual(opened, ['ms-settings:display', 'x-apple.systempreferences:com.apple.Displays-Settings.extension']);
+    assert.deepEqual(mk('linux', { XDG_CURRENT_DESKTOP: 'ubuntu:GNOME' }).openSystemSettings(), { opened: true });
+    assert.deepEqual(spawned[0], ['gnome-control-center', 'display']);
+    assert.deepEqual(mk('linux', { XDG_CURRENT_DESKTOP: 'XFCE' }).openSystemSettings(), { opened: false });
+    assert.equal(linuxSettingsTarget({ XDG_CURRENT_DESKTOP: 'KDE' }).cmd, 'systemsettings');
+    assert.equal(mk('linux', { XDG_SESSION_TYPE: 'wayland' }).snapshot().system.wayland, true);
+  });
+  test('identify page shows only a small number', () => {
+    const html = readFileSyncSafe('src/identify.html');
+    assert.ok(html.includes("default-src 'none'"));
+    assert.ok(html.includes('/^[1-9][0-9]?$/'));
+    assert.ok(!/<script\s+src=/i.test(html));
+  });
+}
 
 function readFileSyncSafe(f) {
   return require('node:fs').readFileSync(f, 'utf8');

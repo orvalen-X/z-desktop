@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-bHz2Ona3ingQmM7bcYKThp7oQssVJ6ywm95g92DJMxE='">
+<title>Z</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  body { display: grid; place-items: center; font-family: 'Segoe UI', -apple-system, system-ui, sans-serif; }
+  div {
+    width: 200px; height: 200px; border-radius: 28px; display: grid; place-items: center;
+    background: rgba(18, 20, 28, 0.78); color: #fff; font-size: 128px; font-weight: 600; line-height: 1;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+  }
+</style>
+</head>
+<body>
+<div id="n"></div>
+<script>
+  // Only a number from 1 to 99 is shown; anything else shows nothing.
+  var n = new URLSearchParams(location.search).get('n');
+  document.getElementById('n').textContent = /^[1-9][0-9]?$/.test(n || '') ? n : '';
+</script>
+</body>
+</html>
