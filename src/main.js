@@ -1,6 +1,7 @@
 'use strict';
 
-const { app, BaseWindow, WebContentsView, Menu, dialog, shell, session, net, ipcMain, nativeTheme } = require('electron');
+const { app, BaseWindow, BrowserWindow, WebContentsView, Menu, dialog, shell, session, net, ipcMain, nativeTheme, screen } = require('electron');
+const { spawn } = require('node:child_process');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
@@ -9,6 +10,7 @@ const i18n = require('./i18n');
 const { createPermissions } = require('./permissions');
 const { createUpdates, RELEASES_API } = require('./updates');
 const { createAutostart, autostartFromArgs } = require('./autostart');
+const { createDisplays } = require('./displays');
 const pkg = require('../package.json');
 
 // One Z per computer: a second launch focuses the running one.
@@ -381,6 +383,28 @@ const autostart = createAutostart({
   execPath: process.execPath,
 });
 
+// Displays (layer 0): read only. The screen module exists only after the app is ready, so this is made there.
+let displays = null;
+const NO_DISPLAYS = { displays: [], system: { platform: process.platform, wayland: false, canOpenSettings: false, canChange: false } };
+function sendDisplays(snap) {
+  if (zView && !zView.webContents.isDestroyed()) zView.webContents.send('zd:displays', snap);
+}
+function startDisplays() {
+  displays = createDisplays({
+    screen,
+    BrowserWindow,
+    shell,
+    spawn,
+    platform: process.platform,
+    env: process.env,
+    identifyFile: path.join(__dirname, 'identify.html'),
+    webPreferences: secureWebPreferences(false),
+    zWindow: () => win,
+    send: sendDisplays,
+  });
+  displays.listen();
+}
+
 function listenToZ() {
   ipcMain.handle('zd:fs:get', (e) => (fromZ(e) ? isFullscreen() : false));
   ipcMain.handle('zd:fs:set', (e, on) => (fromZ(e) && typeof on === 'boolean' ? setFullscreen(on) : isFullscreen()));
@@ -389,6 +413,10 @@ function listenToZ() {
   ipcMain.handle('zd:autostart:set', (e, on) =>
     fromZ(e) && typeof on === 'boolean' ? autostart.set(on) : { supported: false, enabled: false },
   );
+  ipcMain.handle('zd:displays:get', (e) => (fromZ(e) && displays ? displays.snapshot() : NO_DISPLAYS));
+  // Identify windows open only when Z asks (never at start: Z Setup waits for Z's first visible window).
+  ipcMain.handle('zd:displays:identify', (e) => (fromZ(e) && displays ? displays.identify() : { shown: 0 }));
+  ipcMain.handle('zd:displays:settings', (e) => (fromZ(e) && displays ? displays.openSystemSettings() : { opened: false }));
 }
 
 // ---------- the Z window ----------
@@ -477,7 +505,10 @@ function createWindow() {
   zView.webContents.on('did-finish-load', rememberZLanguage);
   zView.webContents.on('did-navigate-in-page', rememberZLanguage);
 
+  // Z moved to another display: tell Z which display it is on now.
+  win.on('moved', () => displays && displays.changed());
   win.on('closed', () => {
+    if (displays) displays.closeIdentify();
     // Views are not closed with the window: close them, so nothing keeps running.
     for (const v of [zView, barView]) if (v && !v.webContents.isDestroyed()) v.webContents.close();
     win = null;
@@ -605,6 +636,7 @@ app.whenReady().then(() => {
   buildMenu();
   buildIconMenu();
   createWindow();
+  startDisplays();
   if (process.argv.includes(RESET_ARG)) resetPermissions();
   if (process.argv.includes(UPDATE_ARG)) updates.checkNow();
   updates.start();
