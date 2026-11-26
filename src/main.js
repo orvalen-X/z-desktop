@@ -13,6 +13,7 @@ const { createAutostart, autostartFromArgs } = require('./autostart');
 const { createDisplays } = require('./displays');
 const { createSurfaces } = require('./surfaces');
 const { createDesks } = require('./desks');
+const { createLockMirror } = require('./lockMirror');
 const { randomBytes } = require('node:crypto');
 const { createNavigationGuard } = require('./navGuard');
 const pkg = require('../package.json');
@@ -420,6 +421,14 @@ function mainDisplayId() {
     return null;
   }
 }
+// Extend, way A, layer 3: one lock for every display. Z's own window locks and unlocks; the others only show it.
+const lockMirror = createLockMirror({ send: (state) => desks && desks.each((wc) => wc.send('zd:lock', state)) });
+// A request from a Z on an extra display, passed on to Z's own window (which decides).
+function askMainZ(channel) {
+  if (!zView || zView.webContents.isDestroyed()) return false;
+  zView.webContents.send(channel);
+  return true;
+}
 // Extend (way B): Z draws on one plain window per extra display. Made with the displays, after the app is ready.
 let surfaces = null;
 // While Z (its own window or one on another display) has the focus, its windows stay above the taskbar. The check
@@ -468,6 +477,13 @@ function listenToZ() {
   ipcMain.handle('zd:displays:identify', (e) => (fromZ(e) && displays ? displays.identify() : { shown: 0 }));
   ipcMain.handle('zd:displays:settings', (e) => (fromZ(e) && displays ? displays.openSystemSettings() : { opened: false }));
   // Extend, way A: Z's own window turns a whole Z on every extra display on or off (its Multiple displays choice).
+  // Layer 3: only Z's own window sets the lock; an extra display reads it, may ask to lock, and reports activity.
+  ipcMain.handle('zd:lock:get', (e) => (fromZ(e) ? lockMirror.get() : { locked: true, profile: null }));
+  ipcMain.handle('zd:lock:set', (e, state) => (fromMainZ(e) ? lockMirror.set(state) : lockMirror.get()));
+  ipcMain.handle('zd:lock:request', (e) => (fromZ(e) && !fromMainZ(e) ? askMainZ('zd:lock:request') : false));
+  ipcMain.handle('zd:lock:activity', (e) =>
+    fromZ(e) && !fromMainZ(e) && lockMirror.activity() ? askMainZ('zd:lock:activity') : false,
+  );
   ipcMain.handle('zd:desks:set', (e, on) => (fromMainZ(e) && desks && typeof on === 'boolean' ? desks.setEnabled(on) : false));
   // Extend: a one-time window name for one display (Z then calls window.open('', name)).
   ipcMain.handle('zd:displays:surface', (e, id) =>
@@ -516,10 +532,15 @@ function createWindow() {
     const id = surfaces && surfaces.displayOfOpening(details && details.frameName);
     if (id) surfaces.adopt(child, id);
   });
+  // A new page of Z (reload, sign-out), a crash or a closed window: every display shows the lock until Z says again.
+  zView.webContents.on('did-start-navigation', (details) => {
+    if (details && details.isMainFrame && !details.isSameDocument) lockMirror.reset();
+  });
   // A new page of Z (reload, sign-out) opens its own windows: the old page's are closed.
   zView.webContents.on('did-navigate', () => surfaces && surfaces.closeAll());
   // Z's page crashed: the windows it drew on would stay frozen over the other displays. Close them.
   zView.webContents.on('render-process-gone', () => surfaces && surfaces.closeAll());
+  zView.webContents.on('render-process-gone', () => lockMirror.reset());
 
   win.contentView.addChildView(zView);
   win.contentView.addChildView(barView);
@@ -592,6 +613,7 @@ function createWindow() {
   });
   win.on('closed', () => {
     if (displays) displays.closeIdentify();
+    lockMirror.reset();
     if (surfaces) surfaces.closeAll();
     if (desks) desks.closeAll();
     // Views are not closed with the window: close them, so nothing keeps running.

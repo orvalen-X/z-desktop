@@ -290,19 +290,25 @@ test('autostart: Windows registers with --autostart, Mac without arguments', () 
 // ---------- the page API: only these names, and the release name travels with the version ----------
 test('preload exposes only the full-screen, autostart, display and extend calls', () => {
   const src = readFileSyncSafe('src/preload.js');
-  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'"].includes(ch), ch);
-  assert.ok(/api: 4,/.test(src), 'api 4');
+  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'"].includes(ch), ch);
+  assert.ok(/api: 5,/.test(src), 'api 5');
   assert.ok(!/require\('(?!electron')/.test(src), 'preload requires only electron');
 });
 test('main checks every Z request comes from Z itself', () => {
   const src = readFileSyncSafe('src/main.js');
   const handlers = src.match(/ipcMain\.handle\('zd:[a-z:]+', \([^)]*\) =>\s*\(?\s*from(Main)?Z\(e\)/g) || [];
   assert.equal(handlers.length, (src.match(/ipcMain\.handle\(/g) || []).length);
-  assert.equal(handlers.length, 11);
-  // What only Z's own window decides: extend on/off, the one-time window names, the main display, autostart.
-  for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set']) {
+  assert.equal(handlers.length, 15);
+  // What only Z's own window decides: extend on/off, the one-time window names, the main display, autostart, the lock.
+  for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set', 'zd:lock:set']) {
     assert.ok(new RegExp(`ipcMain\\.handle\\('${ch}', \\([^)]*\\) =>\\s*\\(?\\s*fromMainZ\\(e\\)`).test(src), ch);
   }
+  // Asking to lock and reporting activity come only from a Z on an extra display, and go only to Z's own window.
+  for (const ch of ['zd:lock:request', 'zd:lock:activity']) {
+    assert.ok(new RegExp(`ipcMain\\.handle\\('${ch}', \\([^)]*\\) =>\\s*\\(?\\s*fromZ\\(e\\) && !fromMainZ\\(e\\)`).test(src), ch);
+  }
+  // A new page, a crash or a closed window of Z's own: every display shows the lock again.
+  assert.equal((src.match(/lockMirror\.reset\(\)/g) || []).length, 3);
   // The Z on another display must be one of ours, its top frame, on Z's address.
   assert.ok(/desks\.displayOf\(wc\) !== null && !!frame && frame === wc\.mainFrame && cfg\.isAppUrl\(frame\.url\)/.test(src));
 });
@@ -640,6 +646,36 @@ test('main checks every Z request comes from Z itself', () => {
     win.setEnabled(true);
     assert.equal(made[0].o.skipTaskbar, false);
     win.closeAll();
+  });
+}
+// ---------- extend, way A, layer 3 (api 5): one lock for every display, opened only on the main display ----------
+{
+  const { createLockMirror, ACTIVITY_EVERY_MS } = require('../src/lockMirror.js');
+  test('lock: starts locked; only "unlocked by a profile" unlocks; anything else is locked', () => {
+    const sent = [];
+    const m = createLockMirror({ send: (s) => sent.push(s) });
+    assert.deepEqual(m.get(), { locked: true, profile: null }, 'not knowing means locked');
+    assert.deepEqual(m.set({ locked: false, profile: 'p_1' }), { locked: false, profile: 'p_1' });
+    assert.equal(sent.length, 1);
+    m.set({ locked: false, profile: 'p_1' });
+    assert.equal(sent.length, 1, 'no change, nothing sent');
+    for (const bad of [null, 'open', {}, { locked: 0 }, { locked: false }, { locked: false, profile: '' }, { locked: false, profile: 'a b' }, { locked: false, profile: 'x'.repeat(129) }, { locked: false, profile: 7 }]) {
+      m.set({ locked: false, profile: 'p_1' });
+      assert.deepEqual(m.set(bad), { locked: true, profile: null }, JSON.stringify(bad));
+    }
+    m.set({ locked: false, profile: 'p_2' });
+    m.reset();
+    assert.deepEqual(m.get(), { locked: true, profile: null });
+    assert.ok(Object.isFrozen(m.get()));
+  });
+  test('lock: activity from an extra display reaches Z\'s own window at most once every few seconds', () => {
+    let t = 1000;
+    const m = createLockMirror({ send() {}, now: () => t });
+    assert.equal(m.activity(), true);
+    t += ACTIVITY_EVERY_MS - 1;
+    assert.equal(m.activity(), false);
+    t += 1;
+    assert.equal(m.activity(), true);
   });
 }
 test('navigation: the top stays on Z, frames inside Z follow their own redirects', () => {
