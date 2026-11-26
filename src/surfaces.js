@@ -1,0 +1,163 @@
+'use strict';
+
+// Extend (multi-monitor, O 26.11 "2+3 together", way B): ONE Z spans all displays. Z's page opens one plain window
+// per extra display and draws on it itself (wallpaper, top bar, later its windows), like a second screen of the
+// same desk. This file only lets that happen safely:
+// - A blank window is allowed ONLY with a one-time name that Z's own page asked for a moment ago (the name is
+//   random, single use and expires). Every other blank window stays refused (a third-party frame inside Z could fill
+//   one with a fake sign-in form).
+// - The window covers its display and nothing else: no address, no navigation, no new windows, no preload.
+// - Z's own window can move to the display the person chooses ("Main display", the Dock goes with it); the choice is
+//   remembered on this computer only.
+// Nothing here changes the system's own display settings.
+
+const NAME_PREFIX = 'zsurface-';
+const NAME_TTL_MS = 10000;
+const NAME_RE = /^zsurface-[0-9a-f]{32}$/;
+
+function createSurfaces({ screen, randomBytes, now, isMac, prefs, savePrefs }) {
+  const clock = now || Date.now;
+  const pending = new Map(); // name -> { displayId, at }
+  const opening = new Map(); // name -> displayId, between the open handler and did-create-window
+  const open = new Map(); // displayId -> window
+
+  const findDisplay = (id) => screen.getAllDisplays().find((d) => String(d.id) === String(id)) || null;
+
+  function sweep() {
+    const t = clock();
+    for (const [name, p] of pending) if (t - p.at > NAME_TTL_MS) pending.delete(name);
+  }
+
+  // Z asks for a window on a display: a one-time name it must pass to window.open within a few seconds.
+  function prepare(displayId) {
+    sweep();
+    const d = findDisplay(displayId);
+    if (!d) return null;
+    const name = NAME_PREFIX + randomBytes(16).toString('hex');
+    pending.set(name, { displayId: String(d.id), at: clock() });
+    return { name };
+  }
+
+  // The window-open handler asks: is this blank window one Z prepared? Returns the window's options, or null.
+  function claim(frameName, webPreferences) {
+    sweep();
+    if (typeof frameName !== 'string' || !NAME_RE.test(frameName)) return null;
+    const p = pending.get(frameName);
+    if (!p) return null;
+    pending.delete(frameName);
+    const d = findDisplay(p.displayId);
+    if (!d) return null;
+    opening.set(frameName, p.displayId);
+    const b = d.bounds;
+    return {
+      displayId: p.displayId,
+      options: {
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height,
+        frame: false,
+        show: false,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: true,
+        skipTaskbar: true,
+        autoHideMenuBar: true,
+        backgroundColor: '#2b2b2d',
+        title: 'Z',
+        webPreferences,
+      },
+    };
+  }
+
+  // did-create-window names the window by the same one-time name: which display it was made for (once).
+  function displayOfOpening(frameName) {
+    const id = typeof frameName === 'string' ? opening.get(frameName) : undefined;
+    if (id === undefined) return null;
+    opening.delete(frameName);
+    return id;
+  }
+
+  // The window exists: lock it down, cover its display, and remember it (one per display).
+  function adopt(w, displayId) {
+    const prev = open.get(displayId);
+    if (prev && prev !== w && !prev.isDestroyed()) prev.destroy();
+    open.set(displayId, w);
+    const wc = w.webContents;
+    wc.on('will-navigate', (e) => e.preventDefault());
+    wc.on('will-redirect', (e) => e.preventDefault());
+    wc.setWindowOpenHandler(() => ({ action: 'deny' }));
+    // Shown without taking the focus from where the person is working.
+    w.showInactive();
+    // Mac: the old-style full screen keeps the window on its display without a new Space.
+    if (isMac) w.setSimpleFullScreen(true);
+    else w.setFullScreen(true);
+    w.on('closed', () => {
+      if (open.get(displayId) === w) open.delete(displayId);
+    });
+  }
+
+  // A display went away: its window goes too. Z hears the change and stops drawing there.
+  function prune() {
+    const ids = new Set(screen.getAllDisplays().map((d) => String(d.id)));
+    for (const [id, w] of open) {
+      if (!ids.has(id)) {
+        if (!w.isDestroyed()) w.destroy();
+        open.delete(id);
+      }
+    }
+  }
+
+  // Z's page reloaded or left: the windows it drew on are closed (the new page opens its own).
+  function closeAll() {
+    pending.clear();
+    opening.clear();
+    for (const w of open.values()) if (!w.isDestroyed()) w.destroy();
+    open.clear();
+  }
+
+  // ---- the main display: where Z's own window (and its Dock) lives ----
+
+  function savedMain() {
+    const id = prefs.mainDisplay;
+    return typeof id === 'string' && findDisplay(id) ? findDisplay(id) : null;
+  }
+
+  // Where Z's window should start: the remembered display, if it is still connected.
+  function startBounds() {
+    const d = savedMain();
+    if (!d) return null;
+    const a = d.workArea;
+    return { x: a.x, y: a.y, width: a.width, height: a.height };
+  }
+
+  // Move Z's window to a display and remember the choice. Full screen stays full screen.
+  function moveMain(win, displayId) {
+    const d = findDisplay(displayId);
+    if (!d || !win || win.isDestroyed()) return { ok: false };
+    prefs.mainDisplay = String(d.id);
+    savePrefs();
+    const a = d.workArea;
+    const place = () => {
+      if (win.isDestroyed()) return;
+      if (win.isMaximized()) win.unmaximize();
+      win.setBounds({ x: a.x, y: a.y, width: a.width, height: a.height });
+    };
+    if (win.isFullScreen()) {
+      win.once('leave-full-screen', () => {
+        place();
+        if (!win.isDestroyed()) win.setFullScreen(true);
+      });
+      win.setFullScreen(false);
+    } else {
+      place();
+      win.maximize();
+    }
+    return { ok: true };
+  }
+
+  return { prepare, claim, displayOfOpening, adopt, prune, closeAll, startBounds, moveMain, count: () => open.size };
+}
+
+module.exports = { createSurfaces, NAME_PREFIX, NAME_TTL_MS };

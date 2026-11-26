@@ -74,6 +74,8 @@ function createDisplays({ screen, BrowserWindow, shell, spawn, platform, env, id
         wayland: platform === 'linux' && String((env && env.XDG_SESSION_TYPE) || '').toLowerCase() === 'wayland',
         canOpenSettings: !!(SYSTEM_SETTINGS[platform] || (platform === 'linux' && linuxSettingsTarget(env))),
         canChange: false,
+        // Extend (api 3): Z can draw on every display and choose its main display.
+        canExtend: true,
       },
     };
   }
