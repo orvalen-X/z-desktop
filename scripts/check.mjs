@@ -210,10 +210,23 @@ test('installer checkbox arrives as --autostart=on/off, nothing else counts', ()
   assert.equal(auto.autostartFromArgs(['--autostart=off']), false);
   assert.equal(auto.autostartFromArgs(['--autostart', '--autostart=yes']), null);
 });
-test('Linux autostart entry quotes the path and starts with --autostart', () => {
-  const e = auto.linuxEntry('/home/a b/Z $x".AppImage');
-  assert.match(e, /^Exec="\/home\/a b\/Z \\\$x\\"\.AppImage" --autostart$/m);
-  assert.match(e, /^Type=Application$/m);
+test('Linux autostart entry: quoted path per the Desktop Entry spec, starts with --autostart', () => {
+  const exec = (p) => auto.linuxEntry(p).split('\n').find((l) => l.startsWith('Exec='));
+  assert.equal(exec('/opt/Z/z-desktop'), 'Exec="/opt/Z/z-desktop" --autostart');
+  // $ and " get \ inside the quotes, and that \ is doubled by the string escape
+  assert.equal(exec('/home/a b/Z $x".AppImage'), 'Exec="/home/a b/Z \\\\$x\\\\".AppImage" --autostart');
+  // a literal backslash becomes four; % is never a field code
+  assert.equal(exec('/h/a\\b%f'), 'Exec="/h/a\\\\\\\\b%%f" --autostart');
+  assert.match(auto.linuxEntry('/opt/Z/z'), /^Type=Application$/m);
+});
+test('Linux autostart: a path with a line break or other control character is refused, nothing written', () => {
+  for (const bad of ['/tmp/x\nExec=evil', '/tmp/x\rY', '/tmp/\tz', '/tmp/\u0000'])
+    assert.throws(() => auto.linuxEntry(bad), /unsafe path/);
+  const files = {};
+  const fakeFs = { existsSync: (f) => f in files, mkdirSync: () => {}, writeFileSync: (f, d) => (files[f] = d), unlinkSync: (f) => delete files[f] };
+  const a = auto.createAutostart({ app: { isPackaged: true }, platform: 'linux', env: { APPIMAGE: '/tmp/x\nExec=evil' }, fs: fakeFs, path: require('node:path'), homedir: '/home/u', execPath: '/opt/Z/z' });
+  assert.deepEqual(a.set(true), { supported: true, enabled: false });
+  assert.equal(Object.keys(files).length, 0);
 });
 test('autostart: never registered while developing, Linux file on and off', () => {
   const files = {};

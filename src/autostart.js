@@ -6,9 +6,14 @@
 
 const AUTOSTART_ARG = '--autostart';
 
-// A path inside the Exec line of a .desktop file: quoted, with the four reserved characters escaped.
+// A path inside the Exec line of a .desktop file (Desktop Entry spec, "Exec key"): no control characters at all
+// (a line break would start a new key), the four reserved characters escaped inside the quotes, then the string
+// escape applied on top (so a literal backslash becomes four), and % doubled so it is never a field code.
 function desktopQuote(p) {
-  return '"' + String(p).replace(/(["`$\\])/g, '\\$1') + '"';
+  const s = String(p);
+  if (/[\u0000-\u001f\u007f]/.test(s)) throw new Error('unsafe path for autostart');
+  const quoted = s.replace(/(["`$\\])/g, '\\$1');
+  return '"' + quoted.replace(/\\/g, '\\\\').replace(/%/g, '%%') + '"';
 }
 
 function linuxEntry(execPath) {
