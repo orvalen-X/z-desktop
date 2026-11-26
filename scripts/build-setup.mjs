@@ -40,7 +40,7 @@ try {
 } finally {
   rmSync(join(dir, 'rsrc_windows_amd64.syso'), { force: true });
 }
-// When signing is switched on, sign Z-Setup.exe before this copy, so both files are signed.
+// When signing is switched on, the signing step must sign this copy too (dist/*.exe), not only Z-Setup.exe.
 copyFileSync(out, named);
 const mb = (statSync(out).size / 1048576).toFixed(1);
 console.log(`built ${out} and ${named} (${mb} MB)`);
