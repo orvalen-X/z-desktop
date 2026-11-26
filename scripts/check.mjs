@@ -5,13 +5,18 @@ import assert from 'node:assert/strict';
 
 const require = createRequire(import.meta.url);
 let failed = 0;
+const pending = []; // async checks finish before the result is counted
+const fail = (name, e) => {
+  failed++;
+  console.log('FAIL', name, '\n     ', e.message);
+};
 const test = (name, fn) => {
   try {
-    fn();
-    console.log('ok  ', name);
+    const r = fn();
+    if (r && typeof r.then === 'function') pending.push(r.then(() => console.log('ok  ', name), (e) => fail(name, e)));
+    else console.log('ok  ', name);
   } catch (e) {
-    failed++;
-    console.log('FAIL', name, '\n     ', e.message);
+    fail(name, e);
   }
 };
 
@@ -290,7 +295,7 @@ test('autostart: Windows registers with --autostart, Mac without arguments', () 
 // ---------- the page API: only these names, and the release name travels with the version ----------
 test('preload exposes only the full-screen, autostart, display and extend calls', () => {
   const src = readFileSyncSafe('src/preload.js');
-  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'", "'zd:window:send'", "'zd:window:receive'"].includes(ch), ch);
+  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'", "'zd:window:send'", "'zd:window:arrived'", "'zd:window:receive'"].includes(ch), ch);
   assert.ok(/api: 6,/.test(src), 'api 6');
   assert.ok(!/require\('(?!electron')/.test(src), 'preload requires only electron');
 });
@@ -298,7 +303,7 @@ test('main checks every Z request comes from Z itself', () => {
   const src = readFileSyncSafe('src/main.js');
   const handlers = src.match(/ipcMain\.handle\('zd:[a-z:]+', \([^)]*\) =>\s*\(?\s*from(Main)?Z\(e\)/g) || [];
   assert.equal(handlers.length, (src.match(/ipcMain\.handle\(/g) || []).length);
-  assert.equal(handlers.length, 16);
+  assert.equal(handlers.length, 17);
   // What only Z's own window decides: extend on/off, the one-time window names, the main display, autostart, the lock.
   for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set', 'zd:lock:set']) {
     assert.ok(new RegExp(`ipcMain\\.handle\\('${ch}', \\([^)]*\\) =>\\s*\\(?\\s*fromMainZ\\(e\\)`).test(src), ch);
@@ -712,37 +717,80 @@ test('main checks every Z request comes from Z itself', () => {
 }
 // ---------- extend, way A, layer 4 (api 6): a window dragged off one display opens on the display under the cursor ----------
 {
-  const { createWindowMove, cleanWindow, MAX_PARAMS } = require('../src/windowMove.js');
+  const { createWindowMove, cleanWindow, MAX_PARAMS, ARRIVE_MS, MIN_GAP_MS } = require('../src/windowMove.js');
   const d1 = { id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 } };
   const d2 = { id: 2, bounds: { x: 1920, y: 0, width: 2560, height: 1440 } };
   const setup = (opts = {}) => {
     const sent = [];
     const wc2 = { send: (ch, v) => sent.push([ch, v]), isDestroyed: () => false };
     let cursor = opts.cursor || { x: 2000, y: 100 };
+    let t = 1000;
+    const timers = [];
+    let n = 0;
     const m = createWindowMove({
       screen: { getCursorScreenPoint: () => cursor, getDisplayNearestPoint: (p) => (p.x >= 1920 ? d2 : d1) },
       isLocked: () => opts.locked === true,
       senderDisplay: (s) => (s === 'main' ? '1' : s === 'desk2' ? '2' : null),
       targetOf: (id) => (id === '2' ? wc2 : null),
+      now: () => t,
+      setTimer: (fn, ms) => { const h = { fn, ms, on: true }; timers.push(h); return h; },
+      clearTimer: (h) => { h.on = false; },
+      newToken: () => `tok${++n}`,
     });
-    return { m, sent, move: (c) => (cursor = c) };
+    const fire = () => timers.filter((h) => h.on).forEach((h) => { h.on = false; h.fn(); });
+    return { m, sent, wc2, move: (c) => (cursor = c), tick: (ms) => (t += ms), fire, timers };
   };
   const spec = { appId: 'zdocs', windowKey: 'zdocs:abc', title: 'Doc', params: { file: 'f1' }, w: 900, h: 600, grabX: 40, grabY: 12 };
-  test('move: the window goes to the Z on the display under the cursor, placed where the cursor is', () => {
-    const { m, sent } = setup();
-    assert.deepEqual(m.send('main', spec), { ok: true });
+  test('move: the window goes to the Z on the display under the cursor, placed where the cursor is, closed here only once it opened there', async () => {
+    const { m, sent, wc2, timers } = setup();
+    let done = null;
+    const p = m.send('main', spec).then((r) => (done = r));
     assert.equal(sent.length, 1);
     assert.equal(sent[0][0], 'zd:window:receive');
-    assert.deepEqual(sent[0][1], { appId: 'zdocs', windowKey: 'zdocs:abc', title: 'Doc', params: { file: 'f1' }, w: 900, h: 600, grabX: 40, grabY: 12, x: 80, y: 100 });
+    assert.deepEqual(sent[0][1], { appId: 'zdocs', windowKey: 'zdocs:abc', title: 'Doc', params: { file: 'f1' }, w: 900, h: 600, grabX: 40, grabY: 12, x: 80, y: 100, token: 'tok1' });
+    await Promise.resolve();
+    assert.equal(done, null, 'sent is not arrived');
+    assert.deepEqual(m.arrived('main', { token: 'tok1', ok: true }), { ok: false }, 'only the Z it was sent to answers');
+    assert.deepEqual(m.arrived(wc2, { token: 'tok9', ok: true }), { ok: false }, 'an unknown token');
+    assert.deepEqual(m.arrived(wc2, { token: 'tok1', ok: true }), { ok: true });
+    assert.deepEqual(await p, { ok: true });
+    assert.equal(timers[0].on, false, 'the wait ends');
+    assert.deepEqual(m.arrived(wc2, { token: 'tok1', ok: true }), { ok: false }, 'only once');
   });
-  test('move: nothing moves while locked, onto the same display, to a display without Z, or from a stranger', () => {
-    assert.deepEqual(setup({ locked: true }).m.send('main', spec), { ok: false }, 'locked');
+  test('move: a target that refuses or does not answer keeps the window where it was; a late answer is told so', async () => {
+    const a = setup();
+    const pa = a.m.send('main', spec);
+    assert.deepEqual(a.m.arrived(a.wc2, { token: 'tok1', ok: false }), { ok: true });
+    assert.deepEqual(await pa, { ok: false }, 'refused');
+    const b = setup();
+    const pb = b.m.send('main', spec);
+    assert.equal(b.timers[0].ms, ARRIVE_MS);
+    b.fire();
+    assert.deepEqual(await pb, { ok: false }, 'no answer in time');
+    assert.deepEqual(b.m.arrived(b.wc2, { token: 'tok1', ok: true }), { ok: false }, 'too late: the target closes what it opened');
+    const c = setup();
+    c.wc2.send = () => { throw new Error('gone'); };
+    assert.deepEqual(await c.m.send('main', spec), { ok: false }, 'the target went away');
+  });
+  test('move: one move in flight per sender, at most 5 a second', async () => {
+    const { m, wc2, tick, sent } = setup();
+    const first = m.send('main', spec);
+    assert.deepEqual(await m.send('main', spec), { ok: false }, 'while one is in flight');
+    m.arrived(wc2, { token: 'tok1', ok: true });
+    await first;
+    assert.deepEqual(await m.send('main', spec), { ok: false }, 'too soon after the last');
+    tick(MIN_GAP_MS);
+    m.send('main', spec);
+    assert.equal(sent.length, 2);
+  });
+  test('move: nothing moves while locked, onto the same display, to a display without Z, or from a stranger', async () => {
+    assert.deepEqual(await setup({ locked: true }).m.send('main', spec), { ok: false }, 'locked');
     const same = setup({ cursor: { x: 100, y: 100 } });
-    assert.deepEqual(same.m.send('main', spec), { ok: false }, 'cursor still on the sender display');
-    assert.deepEqual(setup().m.send('desk2', spec), { ok: false }, 'back onto its own display');
-    assert.deepEqual(setup().m.send('stranger', spec), { ok: false });
+    assert.deepEqual(await same.m.send('main', spec), { ok: false }, 'cursor still on the sender display');
+    assert.deepEqual(await setup().m.send('desk2', spec), { ok: false }, 'back onto its own display');
+    assert.deepEqual(await setup().m.send('stranger', spec), { ok: false });
     const off = setup({ cursor: { x: 9000, y: 100 } });
-    assert.deepEqual(off.m.send('main', spec), { ok: false }, 'cursor outside every display');
+    assert.deepEqual(await off.m.send('main', spec), { ok: false }, 'cursor outside every display');
     assert.equal(same.sent.length + off.sent.length, 0);
   });
   test('move: only a clean description crosses', () => {
@@ -785,6 +833,7 @@ function readFileSyncSafe(f) {
   return require('node:fs').readFileSync(f, 'utf8');
 }
 
+await Promise.all(pending);
 if (failed) {
   console.log(`\n${failed} failed`);
   process.exit(1);

@@ -490,6 +490,8 @@ function listenToZ() {
   );
   // Layer 4: any Z may hand a window to the Z on the display under the cursor (windowMove checks the rest).
   ipcMain.handle('zd:window:send', (e, spec) => (fromZ(e) && windowMove ? windowMove.send(e.sender, spec) : { ok: false }));
+  // r2: the target Z answers that it opened the window (or refused); only then does the Z it left close its own.
+  ipcMain.handle('zd:window:arrived', (e, answer) => (fromZ(e) && windowMove ? windowMove.arrived(e.sender, answer) : { ok: false }));
   ipcMain.handle('zd:desks:set', (e, on) => (fromMainZ(e) && desks && typeof on === 'boolean' ? desks.setEnabled(on) : false));
   // Extend: a one-time window name for one display (Z then calls window.open('', name)).
   ipcMain.handle('zd:displays:surface', (e, id) =>
@@ -769,6 +771,7 @@ app.whenReady().then(() => {
   });
   windowMove = createWindowMove({
     screen,
+    newToken: () => randomBytes(16).toString('hex'),
     isLocked: () => lockMirror.get().locked,
     senderDisplay: (wc) => (zView && wc === zView.webContents ? mainDisplayId() : desks ? desks.displayOf(wc) : null),
     targetOf: (id) =>

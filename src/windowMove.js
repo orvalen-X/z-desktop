@@ -4,7 +4,7 @@
 // Every display runs its own Z, so a window cannot cross by itself: the Z it leaves describes it (the app, its window
 // key, its params, its title, its size and where it was held) and asks for it here. This file checks the request and
 // hands the description to the Z on the display under the cursor, which opens the same window there; the Z it left
-// closes its own only when this says it was delivered.
+// closes its own only when that Z answers that the window is open (r2 below).
 // - The target is the display under the system cursor (asked here, never taken from the page), and must be another
 //   display than the sender's, with a Z on it.
 // - Nothing moves while Z is locked (the shared lock of layer 3): not knowing means locked.
@@ -54,32 +54,78 @@ function cleanWindow(spec) {
   };
 }
 
-function createWindowMove({ screen, isLocked, senderDisplay, targetOf }) {
-  // From a Z (main.js checks fromZ). Returns { ok } : ok only when the window was handed to another display's Z.
+// r2 (Audit M1): "sent" is not "arrived". The window here closes only when the Z on the other display says it opened it.
+// - Every move gets a one-time token from here. The target answers with it (zd:window:arrived) once the window is on
+//   its desk, or refuses. Only the Z it was sent to can answer, and only once.
+// - No answer within ARRIVE_MS: the move failed and the window stays where it was let go. An answer that comes later
+//   is told so, and the target closes the window it opened for it, so the window is never on both displays.
+// - Audit S1: one move in flight per sender, and at most one move per MIN_GAP_MS from it (5 a second).
+const ARRIVE_MS = 3000;
+const MIN_GAP_MS = 200;
+
+function createWindowMove({ screen, isLocked, senderDisplay, targetOf, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, newToken }) {
+  const waiting = new Map(); // token -> { target, finish }
+  const inFlight = new Set(); // senders with a move that was not answered yet
+  const lastSend = new Map(); // sender -> when it last sent
+  const no = () => Promise.resolve({ ok: false });
+
+  // From a Z (main.js checks fromZ). Resolves { ok } : ok only when the Z on another display opened the window.
   function send(sender, spec) {
-    if (isLocked()) return { ok: false };
+    if (isLocked()) return no();
+    if (inFlight.has(sender)) return no();
+    const last = lastSend.get(sender);
+    if (last !== undefined && now() - last < MIN_GAP_MS) return no();
     const win = cleanWindow(spec);
-    if (!win) return { ok: false };
+    if (!win) return no();
     const from = senderDisplay(sender);
-    if (from == null) return { ok: false };
+    if (from == null) return no();
     let point;
     let display;
     try {
       point = screen.getCursorScreenPoint();
       display = screen.getDisplayNearestPoint(point);
     } catch {
-      return { ok: false };
+      return no();
     }
-    if (!display || String(display.id) === String(from)) return { ok: false };
+    if (!display || String(display.id) === String(from)) return no();
     const b = display.bounds;
-    if (point.x < b.x || point.y < b.y || point.x >= b.x + b.width || point.y >= b.y + b.height) return { ok: false };
+    if (point.x < b.x || point.y < b.y || point.x >= b.x + b.width || point.y >= b.y + b.height) return no();
     const wc = targetOf(String(display.id));
-    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return { ok: false };
-    // Where the cursor is on that display, in its own coordinates (Z places the window so it stays under the hand).
-    wc.send('zd:window:receive', { ...win, x: point.x - b.x, y: point.y - b.y });
+    if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return no();
+    lastSend.set(sender, now());
+    const token = newToken();
+    return new Promise((resolve) => {
+      let timer = null;
+      const finish = (ok) => {
+        if (!waiting.has(token)) return;
+        waiting.delete(token);
+        inFlight.delete(sender);
+        if (timer !== null) clearTimer(timer);
+        resolve({ ok });
+      };
+      waiting.set(token, { target: wc, finish });
+      inFlight.add(sender);
+      timer = setTimer(() => finish(false), ARRIVE_MS);
+      try {
+        // Where the cursor is on that display, in its own coordinates (Z places the window so it stays under the hand).
+        wc.send('zd:window:receive', { ...win, x: point.x - b.x, y: point.y - b.y, token });
+      } catch {
+        finish(false);
+      }
+    });
+  }
+
+  // From the Z the window was sent to: opened (ok true) or refused. Returns { ok } : ok when the answer was still awaited.
+  // ok false after opened = too late or not this Z's to answer: the target closes the window it opened.
+  function arrived(sender, answer) {
+    const token = answer && typeof answer.token === 'string' ? answer.token : null;
+    const w = token ? waiting.get(token) : null;
+    if (!w || w.target !== sender) return { ok: false };
+    w.finish(answer.ok === true);
     return { ok: true };
   }
-  return { send };
+
+  return { send, arrived };
 }
 
-module.exports = { createWindowMove, cleanWindow, MAX_PARAMS };
+module.exports = { createWindowMove, cleanWindow, MAX_PARAMS, ARRIVE_MS, MIN_GAP_MS };

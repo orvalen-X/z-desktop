@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld(
     desks: Object.freeze({ set: (on) => ipcRenderer.invoke('zd:desks:set', on === true) }),
     windows: Object.freeze({
       send: (spec) => ipcRenderer.invoke('zd:window:send', spec),
+      arrived: (token, ok) => ipcRenderer.invoke('zd:window:arrived', { token: typeof token === 'string' ? token : null, ok: ok === true }),
       onReceive: (fn) => subscribe(receiveListeners, fn),
     }),
     lock: Object.freeze({
