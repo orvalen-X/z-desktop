@@ -23,7 +23,7 @@ func TestZDirCandidates(t *testing.T) {
 		{"nothing", "", "", "", "", nil},
 		{"relative icon ignored", "", "", `Z\Z.exe,0`, "", nil},
 		{"drive without folder ignored", `C:`, "", "", "", nil},
-		{"network share", `\\srv\apps\Z`, "", "", "", []string{`\\srv\apps\Z`}},
+		{"network share ignored", `\\srv\apps\Z`, "", `\\?\C:\Z\Z.exe,0`, "", nil},
 		{"broken quote", "", "", "", `"C:\x`, nil},
 	}
 	for _, c := range cases {

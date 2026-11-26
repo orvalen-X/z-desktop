@@ -57,11 +57,9 @@ func winDir(p string) string {
 	return p[:i]
 }
 
-// winAbs: a full Windows path, `C:\…` or `\\server\…`.
+// winAbs: a full local Windows path, `C:\…`. Network paths (`\\server\…`) are left out: the full installer
+// never writes one for a per-user install, and starting a program there could send the sign-in to that server.
 func winAbs(p string) bool {
-	if strings.HasPrefix(p, `\\`) {
-		return len(p) > 2
-	}
 	return len(p) >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/') &&
 		((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z'))
 }
