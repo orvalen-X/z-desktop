@@ -470,6 +470,8 @@ test('main checks every Z request comes from Z itself', () => {
     const src = readFileSyncSafe('src/main.js');
     assert.ok(/if \(blank && surfaces && zView && wc === zView\.webContents\) \{\s*const s = surfaces\.claim\(frameName, secureWebPreferences\(false\)\);/.test(src));
     assert.ok(src.includes("if (blank) return { action: 'deny' };"), 'every other blank window is refused');
+    assert.ok(src.includes("zView.webContents.on('did-navigate', () => surfaces && surfaces.closeAll());"), 'a new page of Z closes them');
+    assert.ok(src.includes("zView.webContents.on('render-process-gone', () => surfaces && surfaces.closeAll());"), 'a crashed Z closes them');
   });
 }
 test('navigation: the top stays on Z, frames inside Z follow their own redirects', () => {

@@ -475,6 +475,8 @@ function createWindow() {
   });
   // A new page of Z (reload, sign-out) opens its own windows: the old page's are closed.
   zView.webContents.on('did-navigate', () => surfaces && surfaces.closeAll());
+  // Z's page crashed: the windows it drew on would stay frozen over the other displays. Close them.
+  zView.webContents.on('render-process-gone', () => surfaces && surfaces.closeAll());
 
   win.contentView.addChildView(zView);
   win.contentView.addChildView(barView);
