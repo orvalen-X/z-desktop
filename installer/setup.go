@@ -210,7 +210,9 @@ func (fl *Flow) ResolveLatest(ctx context.Context) error {
 		return offline(fmt.Errorf("newest release not found: %s", res.Status))
 	}
 	m := tagPath.FindStringSubmatch(loc.Path)
-	if m == nil || loc.Scheme != page.Scheme || loc.Host != page.Host {
+	// Same repository too: only <this repo>/releases/tag/<tag> is accepted (GitHub may change the letter case).
+	if m == nil || loc.Scheme != page.Scheme || loc.Host != page.Host ||
+		!strings.EqualFold(loc.Path, strings.TrimSuffix(page.Path, "/latest")+"/tag/"+m[1]) {
 		return bad(fmt.Errorf("unexpected release address %s", loc.Redacted()))
 	}
 	fl.Base = page.Scheme + "://" + page.Host + strings.TrimSuffix(loc.Path, "/tag/"+m[1]) + "/download/" + m[1] + "/"

@@ -259,12 +259,12 @@ func TestBothFilesComeFromTheSameRelease(t *testing.T) {
 	if err := fl.Run(context.Background()); err != nil || sys.ran.Load() != 1 {
 		t.Fatalf("got %v ran %d base %s", err, sys.ran.Load(), fl.Base)
 	}
-	for _, bad := range []string{"https://evil.com/o/z/releases/tag/v0.3.0", "/o/z/releases/tag/../../x", "/o/z/releases/tag/latest"} {
+	for _, bad := range []string{"https://evil.com/o/z/releases/tag/v0.3.0", "/o/z/releases/tag/../../x", "/o/z/releases/tag/latest", "/other/z/releases/tag/v0.3.0"} {
 		mux := http.NewServeMux()
-		mux.HandleFunc("/latest", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, bad, http.StatusFound) })
+		mux.HandleFunc("/o/z/releases/latest", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, bad, http.StatusFound) })
 		s := httptest.NewServer(mux)
 		fl, _ := flow(t, "", &fakeSys{})
-		fl.Latest = s.URL + "/latest"
+		fl.Latest = s.URL + "/o/z/releases/latest"
 		if err := fl.ResolveLatest(context.Background()); err == nil {
 			t.Fatalf("followed %q to %s", bad, fl.Base)
 		}
