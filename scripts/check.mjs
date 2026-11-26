@@ -404,6 +404,7 @@ test('main checks every Z request comes from Z itself', () => {
       destroyed: false, fs: false, simple: false, shown: false, handlers: {}, deny: null,
       isDestroyed: () => w.destroyed, destroy: () => { w.destroyed = true; (ev.closed || (() => {}))(); },
       setFullScreen: (on) => (w.fs = on), setSimpleFullScreen: (on) => (w.simple = on), showInactive: () => (w.shown = true),
+      top: false, setAlwaysOnTop: (on) => (w.top = on),
       on: (name, fn) => (ev[name] = fn),
       webContents: { on: (name, fn) => (w.handlers[name] = fn), setWindowOpenHandler: (fn) => (w.deny = fn) },
     };
@@ -465,6 +466,58 @@ test('main checks every Z request comes from Z itself', () => {
     list = [D(1, 0)];
     assert.equal(s.startBounds(), null, 'unplugged: start where the system puts it');
     list = [D(1, 0), D(2, 1920)];
+  });
+  test('extend: above the taskbar only while Z has the focus (not on Mac)', () => {
+    const s = mk();
+    const w = fakeWin();
+    s.adopt(w, '2');
+    assert.equal(w.top, false);
+    const main = { fs: true, top: false, isDestroyed: () => false, isFullScreen: () => main.fs, setAlwaysOnTop: (on) => (main.top = on) };
+    s.setActive(true, main);
+    assert.ok(w.top && main.top);
+    assert.ok(s.owns(w) && !s.owns(main));
+    const w3 = fakeWin();
+    s.adopt(w3, '1');
+    assert.ok(w3.top, 'a window that opens while Z is active goes above too');
+    s.setActive(false, main);
+    assert.ok(!w.top && !w3.top && !main.top);
+    main.fs = false;
+    s.setActive(true, main);
+    assert.ok(w.top && !main.top, 'a framed Z window keeps the taskbar');
+    s.closeAll();
+    const m = mk(true);
+    const wm = fakeWin();
+    m.adopt(wm, '2');
+    m.setActive(true, null);
+    assert.equal(wm.top, false, 'Mac: never lifted');
+    m.closeAll();
+  });
+  test('extend: moving Z to the display it is on does nothing; a move fades and never stays hidden', () => {
+    const s0 = createSurfaces({
+      screen: { getAllDisplays: () => list, getDisplayMatching: (b) => list.find((d) => d.bounds.x === b.x) },
+      randomBytes: (k) => Buffer.alloc(k, 1), isMac: false, prefs, savePrefs: () => {},
+    });
+    const ev = {};
+    const win = {
+      b: { x: 0, y: 0, width: 1920, height: 1040 }, fs: true, op: [], isDestroyed: () => false, getBounds: () => win.b,
+      isFullScreen: () => win.fs, isMaximized: () => false, unmaximize() {}, maximize() {}, setBounds: (b) => (win.b = b),
+      setOpacity: (v) => win.op.push(v), once: (k, f) => (ev[k] = f), setFullScreen: (on) => (win.fs = on),
+    };
+    assert.deepEqual(s0.moveMain(win, '1'), { ok: true });
+    assert.deepEqual(win.op, [], 'already there');
+    assert.equal(prefs.mainDisplay, '1');
+    s0.moveMain(win, '2');
+    assert.deepEqual(win.op, [0]);
+    assert.ok(s0.moving(), 'main skips its own maximize while moving');
+    ev['leave-full-screen']();
+    assert.equal(win.b.x, 1920);
+    assert.ok(win.fs);
+    ev['enter-full-screen']();
+    assert.deepEqual(win.op, [0, 1]);
+    assert.ok(!s0.moving());
+    const src = readFileSyncSafe('src/main.js');
+    assert.ok(src.includes("if (!win.isMaximized() && !(surfaces && surfaces.moving())) win.maximize();"));
+    assert.ok(src.includes("app.on('browser-window-blur', checkFocus);"));
   });
   test('extend: main checks the blank window comes from Z view with a claimed name', () => {
     const src = readFileSyncSafe('src/main.js');

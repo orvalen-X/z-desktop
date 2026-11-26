@@ -395,6 +395,17 @@ function sendDisplays(snap) {
 }
 // Extend (way B): Z draws on one plain window per extra display. Made with the displays, after the app is ready.
 let surfaces = null;
+// While Z (its own window or one on another display) has the focus, its windows stay above the taskbar. The check
+// waits a moment, so moving the focus between two of Z's windows does not let the taskbar flash in.
+let focusCheck = null;
+function checkFocus() {
+  clearTimeout(focusCheck);
+  focusCheck = setTimeout(() => {
+    if (!surfaces) return;
+    const f = BrowserWindow.getFocusedWindow();
+    surfaces.setActive(!!f && !!win && (f === win || surfaces.owns(f)), win && !win.isDestroyed() ? win : null);
+  }, 120);
+}
 function startDisplays() {
   displays = createDisplays({
     screen,
@@ -498,11 +509,14 @@ function createWindow() {
   win.on('enter-full-screen', () => {
     layout();
     tellZ();
+    checkFocus();
   });
   win.on('leave-full-screen', () => {
-    if (!win.isMaximized()) win.maximize();
+    // On its way to another display (Main display), the move places the window itself.
+    if (!win.isMaximized() && !(surfaces && surfaces.moving())) win.maximize();
     layout();
     tellZ();
+    checkFocus();
   });
   win.on('focus', () => zView && !zView.webContents.isDestroyed() && zView.webContents.focus());
 
@@ -666,6 +680,8 @@ app.whenReady().then(() => {
   buildMenu();
   buildIconMenu();
   surfaces = createSurfaces({ screen, randomBytes, isMac, prefs, savePrefs });
+  app.on('browser-window-focus', checkFocus);
+  app.on('browser-window-blur', checkFocus);
   createWindow();
   startDisplays();
   if (process.argv.includes(RESET_ARG)) resetPermissions();
