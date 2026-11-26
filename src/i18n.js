@@ -247,4 +247,17 @@ function strings(lang) {
   return STRINGS[lang] || STRINGS.en;
 }
 
-module.exports = { STRINGS, SUPPORTED, pickLang, strings };
+// System message boxes (Windows above all) lay text out left to right whatever the language, so Hebrew and Arabic
+// come out with dots, quotes and "Z" in the wrong places. Each line of an RTL language is wrapped in a
+// right-to-left embedding (RLE ... PDF), which makes the line read right to left in any box.
+const RLE = '\u202B';
+const PDF = '\u202C';
+function boxText(lang, text) {
+  if (typeof text !== 'string' || !text || (STRINGS[lang] || STRINGS.en).dir !== 'rtl') return text;
+  return text
+    .split('\n')
+    .map((line) => (line ? RLE + line + PDF : line))
+    .join('\n');
+}
+
+module.exports = { STRINGS, SUPPORTED, pickLang, strings, boxText };

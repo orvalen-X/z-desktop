@@ -118,6 +118,17 @@ try {
 const i18n = require('../src/i18n.js');
 const i18nEn = i18n.STRINGS.en;
 
+test('message boxes: Hebrew and Arabic lines read right to left, others untouched', () => {
+  assert.equal(i18n.boxText('he', 'Z 0.3.3\nשורה'), '\u202BZ 0.3.3\u202C\n\u202Bשורה\u202C');
+  assert.ok(i18n.boxText('ar', 'x').startsWith('\u202B'));
+  for (const l of ['en', 'es', 'ru']) assert.equal(i18n.boxText(l, 'Z 0.3.3'), 'Z 0.3.3');
+  assert.equal(i18n.boxText('he', ''), '');
+  assert.equal(i18n.boxText('he', undefined), undefined);
+  const main = require('node:fs').readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const direct = main.match(/dialog\s*\.\s*showMessageBox\(/g) || [];
+  assert.equal(direct.length, 2, 'every message box goes through showBox');
+});
+
 const upd = require('../src/updates.js');
 test('updates: version order', () => {
   assert.ok(upd.isNewer('v0.2.1', '0.2.0'));
