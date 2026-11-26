@@ -509,6 +509,7 @@ function createWindow() {
   win.on('enter-full-screen', () => {
     layout();
     tellZ();
+    if (surfaces) surfaces.followFullScreen(true);
     checkFocus();
   });
   win.on('leave-full-screen', () => {
@@ -516,6 +517,7 @@ function createWindow() {
     if (!win.isMaximized() && !(surfaces && surfaces.moving())) win.maximize();
     layout();
     tellZ();
+    if (surfaces) surfaces.followFullScreen(false);
     checkFocus();
   });
   win.on('focus', () => zView && !zView.webContents.isDestroyed() && zView.webContents.focus());
@@ -679,7 +681,7 @@ app.whenReady().then(() => {
   listenToZ();
   buildMenu();
   buildIconMenu();
-  surfaces = createSurfaces({ screen, randomBytes, isMac, prefs, savePrefs });
+  surfaces = createSurfaces({ screen, randomBytes, isMac, isWin: process.platform === 'win32', prefs, savePrefs });
   app.on('browser-window-focus', checkFocus);
   app.on('browser-window-blur', checkFocus);
   createWindow();

@@ -404,7 +404,7 @@ test('main checks every Z request comes from Z itself', () => {
       destroyed: false, fs: false, simple: false, shown: false, handlers: {}, deny: null,
       isDestroyed: () => w.destroyed, destroy: () => { w.destroyed = true; (ev.closed || (() => {}))(); },
       setFullScreen: (on) => (w.fs = on), setSimpleFullScreen: (on) => (w.simple = on), showInactive: () => (w.shown = true),
-      top: false, setAlwaysOnTop: (on) => (w.top = on),
+      top: false, setAlwaysOnTop: (on) => (w.top = on), b: null, setBounds: (b) => (w.b = b),
       on: (name, fn) => (ev[name] = fn),
       webContents: { on: (name, fn) => (w.handlers[name] = fn), setWindowOpenHandler: (fn) => (w.deny = fn) },
     };
@@ -420,6 +420,8 @@ test('main checks every Z request comes from Z itself', () => {
     const c = s.claim(name, { sandbox: true });
     assert.equal(c.displayId, '2');
     assert.deepEqual([c.options.x, c.options.width, c.options.frame, c.options.skipTaskbar], [1920, 1920, false, true]);
+    const w = createSurfaces({ screen: { getAllDisplays: () => list }, randomBytes: (k) => Buffer.alloc(k, 7), isMac: false, isWin: true, prefs, savePrefs: () => {} });
+    assert.equal(w.claim(w.prepare('2').name, {}).options.skipTaskbar, false, 'Windows: the taskbar steps aside only for a window it knows');
     assert.deepEqual(c.options.webPreferences, { sandbox: true });
     assert.equal(s.claim(name, {}), null, 'single use');
     const late = s.prepare('2').name;
@@ -491,6 +493,25 @@ test('main checks every Z request comes from Z itself', () => {
     m.setActive(true, null);
     assert.equal(wm.top, false, 'Mac: never lifted');
     m.closeAll();
+  });
+  test('extend: the displays follow Z in and out of full screen, together', () => {
+    const s = mk();
+    const w = fakeWin();
+    s.adopt(w, '2');
+    assert.ok(w.fs, 'Z opens full screen, so does every display');
+    s.setActive(true, null);
+    assert.ok(w.top);
+    s.followFullScreen(false);
+    assert.ok(!w.fs && !w.top, 'out of full screen: the taskbar shows again');
+    assert.deepEqual(w.b, { x: 1920, y: 0, width: 1920, height: 1040 }, 'the work area of its display');
+    const w3 = fakeWin();
+    s.adopt(w3, '1');
+    assert.ok(!w3.fs && w3.b.width === 1920, 'a display that joins now is not full screen either');
+    s.followFullScreen(true);
+    assert.ok(w.fs && w3.fs && w.top && w3.top);
+    s.closeAll();
+    const src = readFileSyncSafe('src/main.js');
+    assert.ok(src.includes('if (surfaces) surfaces.followFullScreen(true);') && src.includes('if (surfaces) surfaces.followFullScreen(false);'));
   });
   test('extend: moving Z to the display it is on does nothing; a move fades and never stays hidden', () => {
     const s0 = createSurfaces({
