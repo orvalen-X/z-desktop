@@ -928,6 +928,15 @@ test('main checks every Z request comes from Z itself', () => {
     const pc = c.L.drop('main', { token: tc, drop: true });
     c.L.arrived(c.wc2, { token: tc, ok: false });
     assert.deepEqual(await pc, { ok: false }, 'refused');
+    const l = setup();
+    const tl = l.L.start('main', spec).token;
+    l.move({ x: 2000, y: 10 });
+    l.tick();
+    const pl = l.L.drop('main', { token: tl, drop: true });
+    l.lock();
+    assert.deepEqual(l.L.arrived(l.wc2, { token: tl, ok: true }), { ok: true });
+    assert.deepEqual(await pl, { ok: false }, 'locked while it landed');
+    assert.deepEqual(kinds(l.got[2]), ['enter', 'land', 'leave']);
     const d = setup();
     const td = d.L.start('main', spec).token;
     d.move({ x: 2000, y: 10 });

@@ -161,7 +161,8 @@ function createWindowLive({ screen, isLocked, profileOf, senderDisplay, targetOf
     const token = answer && typeof answer.token === 'string' ? answer.token : null;
     const w = token ? landing.get(token) : null;
     if (!w || w.target !== sender) return { ok: false };
-    w.finish(answer.ok === true);
+    // Closure NIT: Z locked while it landed: it did not land (the window stays where it came from)
+    w.finish(answer.ok === true && !isLocked());
     return { ok: true };
   }
 
