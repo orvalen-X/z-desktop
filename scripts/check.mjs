@@ -20,7 +20,7 @@ const test = (name, fn) => {
   }
 };
 
-for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js', 'src/autostart.js', 'src/displays.js', 'src/navGuard.js', 'src/surfaces.js', 'src/desks.js']) {
+for (const f of ['src/main.js', 'src/preload.js', 'src/config.js', 'src/i18n.js', 'src/permissions.js', 'src/updates.js', 'src/autostart.js', 'src/displays.js', 'src/navGuard.js', 'src/surfaces.js', 'src/desks.js', 'src/winKeys.js']) {
   test(`syntax ${f}`, () => execFileSync(process.execPath, ['--check', f]));
 }
 
@@ -295,17 +295,17 @@ test('autostart: Windows registers with --autostart, Mac without arguments', () 
 // ---------- the page API: only these names, and the release name travels with the version ----------
 test('preload exposes only the full-screen, autostart, display and extend calls', () => {
   const src = readFileSyncSafe('src/preload.js');
-  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'", "'zd:window:send'", "'zd:window:arrived'", "'zd:window:receive'", "'zd:window:drag'", "'zd:window:drop'", "'zd:window:live'", "'zd:span:get'", "'zd:span:set'", "'zd:span:ready'"].includes(ch), ch);
-  assert.ok(/api: 8,/.test(src), 'api 8');
+  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'", "'zd:window:send'", "'zd:window:arrived'", "'zd:window:receive'", "'zd:window:drag'", "'zd:window:drop'", "'zd:window:live'", "'zd:span:get'", "'zd:span:set'", "'zd:span:ready'", "'zd:keys:get'", "'zd:keys:set'", "'zd:keys:oslock'"].includes(ch), ch);
+  assert.ok(/api: 9,/.test(src), 'api 9');
   assert.ok(!/require\('(?!electron')/.test(src), 'preload requires only electron');
 });
 test('main checks every Z request comes from Z itself', () => {
   const src = readFileSyncSafe('src/main.js');
   const handlers = src.match(/ipcMain\.handle\('zd:[a-z:]+', \([^)]*\) =>\s*\(?\s*from(Main)?Z\(e\)/g) || [];
   assert.equal(handlers.length, (src.match(/ipcMain\.handle\(/g) || []).length);
-  assert.equal(handlers.length, 22);
+  assert.equal(handlers.length, 24);
   // What only Z's own window decides: extend on/off, span mode, the one-time window names, the main display, autostart, the lock.
-  for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set', 'zd:lock:set', 'zd:span:set', 'zd:span:ready']) {
+  for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set', 'zd:lock:set', 'zd:span:set', 'zd:span:ready', 'zd:keys:set']) {
     assert.ok(new RegExp(`ipcMain\\.handle\\('${ch}', \\([^)]*\\) =>\\s*\\(?\\s*fromMainZ\\(e\\)`).test(src), ch);
   }
   // Asking to lock and reporting activity come only from a Z on an extra display, and go only to Z's own window.
@@ -1156,6 +1156,137 @@ test('navigation: the top stays on Z, frames inside Z follow their own redirects
     assert.ok(m);
     const f = new Function('RESET_ARG', 'UPDATE_ARG', 'SPAN_OFF_ARG', 'AUTOSTART_ARG', `${m[0]}; return restartArgs;`)('--reset-permissions', '--check-updates', '--one-display', '--autostart');
     assert.deepEqual(f(['z.exe', '--reset-permissions', '--check-updates', '--one-display', '--autostart=on', '.', '--x']), ['.', '--x']);
+  });
+}
+
+// ---------- the Windows key in full screen (api 9, O 27.11) ----------
+{
+  const { createWinKeys, isLeaveFullscreen, HOLD_WORLD } = require('../src/winKeys.js');
+  const fakeContents = () => {
+    const on = {};
+    const runs = [];
+    return {
+      on: (ev, fn) => {
+        on[ev] = fn;
+      },
+      emit: (ev, ...a) => on[ev] && on[ev](...a),
+      isDestroyed: () => false,
+      executeJavaScriptInIsolatedWorld: (world, scripts, gesture) => {
+        runs.push({ world, code: scripts[0].code, gesture });
+        return Promise.resolve(true);
+      },
+      runs,
+    };
+  };
+  const make = (over = {}) => {
+    const c = fakeContents();
+    const st = { enabled: true, wanted: true, t: 0, timers: [] };
+    const k = createWinKeys({
+      platform: 'win32',
+      enabled: () => st.enabled,
+      wanted: () => st.wanted,
+      contents: () => c,
+      now: () => st.t,
+      setTimeout: (fn) => {
+        st.timers.push(fn);
+        return st.timers.length;
+      },
+      clearTimeout: () => {},
+      ...over,
+    });
+    k.attach(c);
+    const flush = () => {
+      const fns = st.timers.splice(0);
+      for (const fn of fns) fn();
+    };
+    return { c, st, k, flush };
+  };
+  test('win keys: full screen holds the page (own world, with a gesture), leaving lets go', () => {
+    const { c, st, k } = make();
+    k.changed();
+    assert.equal(c.runs.length, 1);
+    assert.equal(c.runs[0].world, HOLD_WORLD);
+    assert.equal(c.runs[0].gesture, true);
+    assert.match(c.runs[0].code, /requestFullscreen/);
+    c.emit('enter-html-full-screen');
+    k.changed();
+    assert.equal(c.runs.length, 1, 'already held: nothing again');
+    st.enabled = false;
+    k.changed();
+    assert.match(c.runs[1].code, /exitFullscreen/);
+    assert.match(c.runs[1].code, /for \(/, 'all the way out, also a video over the hold (Closure-old M2)');
+  });
+  test('win keys: hold, a video over it, the window leaves full screen: the page leaves full screen too', async () => {
+    const { c, st, k } = make();
+    k.changed();
+    c.emit('enter-html-full-screen');
+    await new Promise((r) => setImmediate(r));
+    // a video goes full screen over the hold (Chromium sends no new event), then the window leaves full screen
+    st.wanted = false;
+    k.changed();
+    assert.equal(c.runs.length, 2);
+    assert.match(c.runs[1].code, /exitFullscreen/);
+  });
+  test("win keys: a video's own full screen in a windowed Z is never ended", () => {
+    const { c, st, k } = make();
+    st.wanted = false;
+    c.emit('enter-html-full-screen'); // the video, not the hold
+    k.changed();
+    assert.equal(c.runs.length, 0);
+    assert.equal(k.isOurs(), false);
+  });
+  test('win keys: only on Windows, only when wanted', () => {
+    const mac = make({ platform: 'darwin' });
+    mac.k.changed();
+    assert.equal(mac.c.runs.length, 0);
+    assert.equal(mac.k.supported, false);
+    const out = make();
+    out.st.wanted = false;
+    out.k.changed();
+    assert.equal(out.c.runs.length, 0, 'out of full screen: no hold');
+  });
+  test('win keys: a lost hold comes back, but never in a loop', () => {
+    const { c, st, k, flush } = make();
+    k.changed();
+    for (let i = 0; i < 10; i++) {
+      c.emit('enter-html-full-screen');
+      c.emit('leave-html-full-screen');
+      flush();
+    }
+    assert.equal(c.runs.length, 5, 'at most 5 tries in 10 seconds');
+    st.t = 20000;
+    k.changed();
+    assert.equal(c.runs.length, 6, 'a real change starts again');
+  });
+  test('win keys: a new page starts without the hold and is held once it loads', () => {
+    const { c, k, flush } = make();
+    k.changed();
+    c.emit('enter-html-full-screen');
+    c.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+    assert.equal(k.isHeld(), false);
+    c.emit('did-finish-load');
+    flush();
+    assert.equal(c.runs.length, 2);
+  });
+  test('win keys: Ctrl+Alt+Esc is the way out, nothing else', () => {
+    const k = (over) => ({ type: 'keyDown', key: 'Escape', control: true, alt: true, meta: false, shift: false, ...over });
+    assert.equal(isLeaveFullscreen(k()), true);
+    for (const bad of [k({ type: 'keyUp' }), k({ control: false }), k({ alt: false }), k({ meta: true }), k({ shift: true }), k({ key: 'Delete' })])
+      assert.equal(isLeaveFullscreen(bad), false);
+  });
+  test('win keys: wired in main (Z window only, a quiet keyboard lock, Windows lock tells Z)', () => {
+    const src = readFileSyncSafe('src/main.js');
+    assert.ok(/winKeys\.attach\(zView\.webContents\);/.test(src));
+    assert.ok(/!\(span && span\.active\(\)\) &&\n\s+win\.isFullScreen\(\)/.test(src), 'not in span mode (layer 2)');
+    assert.ok(/cfg\.isAppUrl\(zView\.webContents\.getURL\(\)\)/.test(src), 'never the offline page');
+    assert.ok(/powerMonitor\.on\('lock-screen'/.test(src));
+    assert.ok(/p && p\.winKeys === false/.test(src), 'only a real false turns it off');
+    const { QUIET, createPermissions } = require('../src/permissions.js');
+    assert.ok(QUIET.has('keyboardLock'));
+    const perms = createPermissions({ store: { get: () => undefined, set: () => {}, clear: () => {} }, ask: () => true });
+    assert.equal(perms.check('https://orvalen.me/', 'keyboardLock'), true, "Z's own page");
+    assert.equal(perms.check('https://evil.example/', 'keyboardLock'), false, 'any other page');
+    assert.equal(perms.check('https://x.workers.dev/', 'keyboardLock', {}, 'https://orvalen.me/'), false, 'an app frame inside Z');
   });
 }
 

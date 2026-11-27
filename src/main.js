@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BaseWindow, BrowserWindow, WebContentsView, Menu, dialog, shell, session, net, ipcMain, nativeTheme, screen } = require('electron');
+const { app, BaseWindow, BrowserWindow, WebContentsView, Menu, dialog, shell, session, net, ipcMain, nativeTheme, screen, powerMonitor } = require('electron');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const { pathToFileURL, fileURLToPath } = require('node:url');
@@ -19,6 +19,7 @@ const { createWindowLive } = require('./windowLive');
 const { createSpan } = require('./span');
 const { randomBytes } = require('node:crypto');
 const { createNavigationGuard } = require('./navGuard');
+const { createWinKeys, isLeaveFullscreen } = require('./winKeys');
 const pkg = require('../package.json');
 
 // One Z per computer: a second launch focuses the running one.
@@ -44,7 +45,7 @@ let zView = null;
 let barView = null;
 let offline = false;
 let retryTimer = null;
-let prefs = { lang: null, perms: {}, updSkipped: null, mainDisplay: null, span: false };
+let prefs = { lang: null, perms: {}, updSkipped: null, mainDisplay: null, span: false, winKeys: true };
 const RESET_ARG = '--reset-permissions';
 const UPDATE_ARG = '--check-updates';
 // Leaves span mode from outside Z's page (it may be offline): the taskbar menu on Windows, or `z --one-display`.
@@ -68,6 +69,8 @@ function loadPrefs() {
     if (p && typeof p.updSkipped === 'string') prefs.updSkipped = p.updSkipped;
     if (p && typeof p.mainDisplay === 'string' && p.mainDisplay.length <= 40) prefs.mainDisplay = p.mainDisplay;
     if (p && p.span === true) prefs.span = true;
+    // the Windows key is Z's in full screen unless the person switched it off (O 27.11)
+    if (p && p.winKeys === false) prefs.winKeys = false;
   } catch {
     /* first run */
   }
@@ -369,6 +372,34 @@ function rememberZLanguage() {
 
 const isFullscreen = () => !!win && !win.isDestroyed() && (span && span.active() ? span.full() : win.isFullScreen());
 
+// The Windows key belongs to Z while Z's own window is in full screen (winKeys.js, O 27.11).
+const winKeys = createWinKeys({
+  platform: process.platform,
+  enabled: () => prefs.winKeys !== false,
+  wanted: () =>
+    !!win &&
+    !win.isDestroyed() &&
+    !(span && span.active()) &&
+    win.isFullScreen() &&
+    !!zView &&
+    !zView.webContents.isDestroyed() &&
+    cfg.isAppUrl(zView.webContents.getURL()),
+  contents: () => (zView ? zView.webContents : null),
+});
+
+const NO_WIN_KEYS = Object.freeze({ supported: false, enabled: false });
+function winKeysState() {
+  return winKeys.supported ? { supported: true, enabled: prefs.winKeys !== false } : NO_WIN_KEYS;
+}
+function setWinKeys(on) {
+  if (winKeys.supported && on !== (prefs.winKeys !== false)) {
+    prefs.winKeys = on;
+    savePrefs();
+    winKeys.changed();
+  }
+  return winKeysState();
+}
+
 function barColors() {
   const dark = nativeTheme.shouldUseDarkColors;
   return { color: dark ? '#1c1f26' : '#eef1f5', symbolColor: dark ? '#e9edf3' : '#1b2028', height: BAR_HEIGHT };
@@ -419,6 +450,11 @@ function setFullscreen(on) {
   }
   if (on !== isFullscreen()) win.setFullScreen(on);
   return on;
+}
+// Ctrl+Alt+Esc: out of full screen, back to Windows (O 27.11: with the Windows key and Alt+Tab Z's own, the one way
+// back). Only in full screen, and not on a Mac (its keys come with the Mac layer).
+function leaveFullscreenKey(input) {
+  return !isMac && isLeaveFullscreen(input) && isFullscreen();
 }
 function toggleFullscreen() {
   return setFullscreen(!isFullscreen());
@@ -589,6 +625,9 @@ function listenToZ() {
   ipcMain.handle('zd:fs:get', (e) => (fromZ(e) ? isFullscreen() : false));
   ipcMain.handle('zd:fs:set', (e, on) => (fromZ(e) && typeof on === 'boolean' ? setFullscreen(on) : isFullscreen()));
   ipcMain.handle('zd:fs:toggle', (e) => (fromZ(e) ? toggleFullscreen() : isFullscreen()));
+  // api 9: the Windows key in full screen. Only Z's own window switches it.
+  ipcMain.handle('zd:keys:get', (e) => (fromZ(e) ? winKeysState() : NO_WIN_KEYS));
+  ipcMain.handle('zd:keys:set', (e, on) => (fromMainZ(e) && typeof on === 'boolean' ? setWinKeys(on) : winKeysState()));
   ipcMain.handle('zd:autostart:get', (e) => (fromZ(e) ? autostart.get() : { supported: false, enabled: false }));
   ipcMain.handle('zd:autostart:set', (e, on) =>
     fromMainZ(e) && typeof on === 'boolean' ? autostart.set(on) : { supported: false, enabled: false },
@@ -719,6 +758,7 @@ function createWindow() {
   // Z's page crashed: the windows it drew on would stay frozen over the other displays. Close them.
   zView.webContents.on('render-process-gone', () => surfaces && surfaces.closeAll());
   zView.webContents.on('render-process-gone', () => lockMirror.reset());
+  winKeys.attach(zView.webContents);
 
   win.contentView.addChildView(zView);
   win.contentView.addChildView(barView);
@@ -746,6 +786,7 @@ function createWindow() {
     if (surfaces) surfaces.followFullScreen(true);
     if (desks) desks.followFullScreen(true);
     checkFocus();
+    winKeys.changed();
   });
   win.on('leave-full-screen', () => {
     // On its way to another display (Main display), the move places the window itself.
@@ -755,6 +796,7 @@ function createWindow() {
     if (surfaces) surfaces.followFullScreen(false);
     if (desks && !(surfaces && surfaces.moving())) desks.followFullScreen(false);
     checkFocus();
+    winKeys.changed();
   });
   win.on('focus', () => zView && !zView.webContents.isDestroyed() && zView.webContents.focus());
 
@@ -769,6 +811,9 @@ function createWindow() {
     if (input.type === 'keyDown' && input.key === 'F11' && !input.alt && !input.control && !input.meta) {
       event.preventDefault();
       toggleFullscreen();
+    } else if (leaveFullscreenKey(input)) {
+      event.preventDefault();
+      setFullscreen(false);
     }
   });
 
@@ -934,6 +979,9 @@ function startExtend() {
         if (input.type === 'keyDown' && input.key === 'F11' && !input.alt && !input.control && !input.meta) {
           event.preventDefault();
           toggleFullscreen();
+        } else if (leaveFullscreenKey(input)) {
+          event.preventDefault();
+          setFullscreen(false);
         }
       }),
   });
@@ -980,6 +1028,12 @@ app.whenReady().then(() => {
   };
   windowMove = createWindowMove(moveDeps);
   windowLive = createWindowLive(moveDeps);
+  // Windows locked (Win+L, which no app can catch): Z's own window locks Z too (O 27.11). Only where the key is Z's.
+  if (winKeys.supported) {
+    powerMonitor.on('lock-screen', () => {
+      if (prefs.winKeys !== false && zView && !zView.webContents.isDestroyed()) zView.webContents.send('zd:keys:oslock');
+    });
+  }
   app.on('browser-window-focus', checkFocus);
   app.on('browser-window-blur', checkFocus);
   createWindow();

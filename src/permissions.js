@@ -8,7 +8,8 @@ const cfg = require('./config');
 
 const SENSITIVE = ['camera', 'microphone', 'geolocation'];
 // Granted to Z without a dialog: the operating system or Z itself already asks for these.
-const QUIET = new Set(['notifications', 'fullscreen', 'clipboard-sanitized-write', 'pointerLock']);
+// keyboardLock: Z's page locks the keys it uses in full screen (the Windows key, Alt+Tab, Ctrl+W, ...; O 27.11).
+const QUIET = new Set(['notifications', 'fullscreen', 'clipboard-sanitized-write', 'pointerLock', 'keyboardLock']);
 
 function originOf(url) {
   try {
