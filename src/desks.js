@@ -18,6 +18,7 @@
 
 const MAX_CRASHES = 3;
 const RETRY_MS = 5000;
+const MAX_RETRY_MS = 60000;
 
 function createDesks({ BrowserWindow, screen, isMac, isWin, webPreferences, startUrl, userAgent, mainDisplayId, onCreate }) {
   const open = new Map(); // displayId -> window
@@ -52,6 +53,23 @@ function createDesks({ BrowserWindow, screen, isMac, isWin, webPreferences, star
     else w.setFullScreen(false);
     const d = findDisplay(id);
     if (d) w.setBounds({ x: d.workArea.x, y: d.workArea.y, width: d.workArea.width, height: d.workArea.height });
+  }
+
+  // A display that changed size, scale or work area (hotplug, resolution, taskbar): its Z covers it again.
+  function refit(w, id) {
+    if (!w || w.isDestroyed() || typeof w.getBounds !== 'function') return;
+    const d = findDisplay(id);
+    if (!d) return;
+    const want = full ? d.bounds : d.workArea;
+    const b = w.getBounds();
+    if (b.x === want.x && b.y === want.y && b.width === want.width && b.height === want.height) return;
+    if (full) {
+      // leave full screen on the old size first, so full screen takes the display's new size
+      if (isMac) w.setSimpleFullScreen(false);
+      else w.setFullScreen(false);
+      w.setBounds({ x: d.bounds.x, y: d.bounds.y, width: d.bounds.width, height: d.bounds.height });
+    }
+    cover(w, id);
   }
 
   function shut(id) {
@@ -100,14 +118,26 @@ function createDesks({ BrowserWindow, screen, isMac, isWin, webPreferences, star
       if (crashes > MAX_CRASHES) shut(id);
       else w.webContents.reload();
     });
+    // A failed load tries again after 5 s, then 10, 20, 40, and every minute at most (no offline busy loop);
+    // one try waits at a time, and a load that finishes starts the count again.
+    let fails = 0;
+    let retry = null;
     w.webContents.on('did-fail-load', (_event, code, _desc, _url, isMainFrame) => {
       // -3 = a navigation was replaced by another one: not a failure.
-      if (!isMainFrame || code === -3) return;
-      setTimeout(() => {
+      if (!isMainFrame || code === -3 || retry) return;
+      const wait = Math.min(RETRY_MS * 2 ** fails, MAX_RETRY_MS);
+      fails += 1;
+      retry = setTimeout(() => {
+        retry = null;
         if (!w.isDestroyed() && open.get(id) === w) w.loadURL(startUrl);
-      }, RETRY_MS);
+      }, wait);
+    });
+    w.webContents.on('did-finish-load', () => {
+      fails = 0;
     });
     w.on('closed', () => {
+      if (retry) clearTimeout(retry);
+      retry = null;
       if (open.get(id) === w) open.delete(id);
       if (!closingByUs.has(w) && enabled) closedByPerson.add(id);
     });
@@ -123,7 +153,10 @@ function createDesks({ BrowserWindow, screen, isMac, isWin, webPreferences, star
     for (const id of Array.from(closedByPerson)) if (!ids.has(id)) closedByPerson.delete(id);
     const mainId = mainDisplayId();
     const want = new Set(enabled && mainId != null ? all.map((d) => String(d.id)).filter((id) => id !== String(mainId)) : []);
-    for (const id of Array.from(open.keys())) if (!want.has(id)) shut(id);
+    for (const id of Array.from(open.keys())) {
+      if (!want.has(id)) shut(id);
+      else refit(open.get(id), id);
+    }
     for (const d of all) {
       const id = String(d.id);
       if (!want.has(id) || open.has(id) || closedByPerson.has(id)) continue;

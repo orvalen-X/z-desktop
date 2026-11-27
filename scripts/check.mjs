@@ -587,6 +587,7 @@ test('main checks every Z request comes from Z itself', () => {
     setSimpleFullScreen(on) { this.simple = on; }
     setAlwaysOnTop(on) { this.top = on; }
     setBounds(b) { this.b = b; }
+    getBounds() { return this.b || { x: 0, y: 0, width: 0, height: 0 }; }
   }
   const mk = (list, main, opts = {}) => createDesks({
     BrowserWindow: FakeWin, screen: { getAllDisplays: () => list.v }, isMac: false, isWin: false,
@@ -632,7 +633,7 @@ test('main checks every Z request comes from Z itself', () => {
     assert.equal(d.count(), 1, 'the display came back: a new Z');
     d.closeAll();
   });
-  test('desks: a crashed Z loads again (3 times, then its window closes); a failed load tries again', () => {
+  test('desks: a crashed Z loads again (3 times, then its window closes); a failed load tries again, waiting longer each time', () => {
     made.length = 0;
     const list = { v: [D(1, 0), D(2, 1920)] };
     const d = mk(list, { v: '1' });
@@ -649,15 +650,29 @@ test('main checks every Z request comes from Z itself', () => {
     const w2 = made[1];
     const realSetTimeout = globalThis.setTimeout;
     const later = [];
-    globalThis.setTimeout = (fn) => later.push(fn);
+    globalThis.setTimeout = (fn, ms) => later.push([fn, ms]);
     try {
       w2.url = '';
       w2.wcev['did-fail-load']({}, -3, '', '', true);
       w2.wcev['did-fail-load']({}, -105, '', '', false);
       assert.equal(later.length, 0, 'a replaced navigation or a frame inside is not a failure');
       w2.wcev['did-fail-load']({}, -105, '', '', true);
-      later.forEach((fn) => fn());
+      w2.wcev['did-fail-load']({}, -105, '', '', true);
+      assert.equal(later.length, 1, 'one try waits at a time');
+      const run = () => later.splice(0).forEach(([fn]) => fn());
+      run();
       assert.equal(w2.url, 'https://orvalen.me/');
+      const waits = [5000];
+      for (let i = 0; i < 6; i++) {
+        w2.wcev['did-fail-load']({}, -105, '', '', true);
+        waits.push(later[0][1]);
+        run();
+      }
+      assert.deepEqual(waits, [5000, 10000, 20000, 40000, 60000, 60000, 60000], 'longer each time, a minute at most');
+      w2.wcev['did-finish-load']();
+      w2.wcev['did-fail-load']({}, -105, '', '', true);
+      assert.equal(later[0][1], 5000, 'a load that finished starts the count again');
+      run();
     } finally {
       globalThis.setTimeout = realSetTimeout;
     }
@@ -677,6 +692,11 @@ test('main checks every Z request comes from Z itself', () => {
     assert.deepEqual(w.b, { x: 1920, y: 0, width: 1920, height: 1040 });
     d.followFullScreen(true);
     assert.ok(w.fs && w.top);
+    d.followFullScreen(false);
+    list.v = [D(1, 0), { id: 2, bounds: { x: 1920, y: 0, width: 2560, height: 1440 }, workArea: { x: 1920, y: 0, width: 2560, height: 1400 } }];
+    d.sync();
+    assert.deepEqual(w.b, { x: 1920, y: 0, width: 2560, height: 1400 }, 'the display changed size: its Z covers it again');
+    assert.equal(d.count(), 1, 'the same Z, not a new one');
     d.closeAll();
     made.length = 0;
     const win = mk(list, { v: '1' }, { isWin: true });
