@@ -1047,6 +1047,29 @@ test('navigation: the top stays on Z, frames inside Z follow their own redirects
     span.setFull(false);
     assert.deepEqual(span.bounds(), { x: 0, y: 0, width: 3840, height: 1040 });
   });
+  test('span: out of full screen the window bar sits on the primary display (bottom-aligned, unequal heights)', () => {
+    // O's displays 27.11: a 3440x1440 display on the left, the 1920x1200 primary one on the right, bottoms in line
+    const wide = D(-3440, -240, 3440, 1440);
+    const laptop = D(0, 0, 1920, 1200);
+    const span = createSpan({
+      screen: { getAllDisplays: () => [wide, laptop], getPrimaryDisplay: () => laptop },
+      platform: 'win32', env: {}, prefs: { span: true }, savePrefs: () => {}, restart: () => {},
+    });
+    assert.equal(span.barRect(34), null, 'full screen: no bar');
+    span.setFull(false);
+    assert.deepEqual(span.barRect(34), { x: 3440, y: 240, width: 1920, height: 34 });
+    const off = createSpan({ screen: { getAllDisplays: () => [laptop], getPrimaryDisplay: () => laptop }, platform: 'win32', env: {}, prefs: {}, savePrefs: () => {}, restart: () => {} });
+    off.setFull(false);
+    assert.equal(off.barRect(34), null, 'not span mode: no bar here');
+  });
+  test('span: the bar asks only through its own page, for minimize or close', () => {
+    const main = readFileSyncSafe('src/main.js');
+    assert.ok(/if \(u\.protocol !== 'file:' \|\| path\.normalize\(fileURLToPath\(u\)\) !== path\.normalize\(TITLEBAR_FILE\)\) return null;/.test(main));
+    assert.ok(/return what === 'minimize' \|\| what === 'close' \? what : null;/.test(main));
+    assert.ok(/barView\.webContents\.on\('will-navigate', \(event, url\) => \{\n    event\.preventDefault\(\);\n    if \(!spanning/.test(main));
+    const html = readFileSyncSafe('src/titlebar.html');
+    assert.ok(html.includes('href="?do=minimize"') && html.includes('href="?do=close"'));
+  });
   test('span: switching saves the choice and restarts once; the same mode does not restart', () => {
     const prefs = {};
     const { span, log } = mk(prefs);

@@ -86,8 +86,25 @@ function createSpan({ screen, platform, env, prefs, savePrefs, restart, setTimer
     return { ...get(), restarting };
   }
 
+  // Out of full screen, Z's window bar (minimize, close) sits at the top of the primary display's work area (O 27.11:
+  // the window buttons, as without span mode), in the window's own coordinates. null in full screen or when unknown.
+  function barRect(height) {
+    if (!active || full) return null;
+    let p = null;
+    try {
+      p = screen.getPrimaryDisplay();
+    } catch {
+      return null;
+    }
+    const w = rect(p && p.workArea);
+    const u = area();
+    if (!w || !u) return null;
+    return { x: Math.round(w.x - u.x), y: Math.round(w.y - u.y), width: Math.round(w.width), height };
+  }
+
   return {
     active: () => active,
+    barRect,
     get,
     set,
     bounds,

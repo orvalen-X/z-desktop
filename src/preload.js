@@ -75,6 +75,8 @@ contextBridge.exposeInMainWorld(
     // api 8: one Z across all displays. active = this run (fixed until Z starts again); set() restarts Z when it changes.
     span: Object.freeze({
       active: arg('z-desktop-span') === '1',
+      // out of full screen, the window bar covers this many pixels at the top of the primary display (Z keeps them free)
+      bar: arg('z-desktop-span') === '1' ? Math.max(0, Math.min(64, Number(arg('z-desktop-span-bar')) || 0)) : 0,
       get: () => ipcRenderer.invoke('zd:span:get'),
       set: (on) => ipcRenderer.invoke('zd:span:set', on === true),
     }),

@@ -3,7 +3,7 @@
 const { app, BaseWindow, BrowserWindow, WebContentsView, Menu, dialog, shell, session, net, ipcMain, nativeTheme, screen } = require('electron');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
-const { pathToFileURL } = require('node:url');
+const { pathToFileURL, fileURLToPath } = require('node:url');
 const fs = require('node:fs');
 const cfg = require('./config');
 const i18n = require('./i18n');
@@ -236,6 +236,18 @@ function guardContents(wc) {
 }
 
 // display: the id of the display a whole Z runs on (extend, way A); empty for Z's own window.
+// The window bar's button in span mode: 'minimize' or 'close' when url is the bar's own page asking for it, else null.
+function barAction(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'file:' || path.normalize(fileURLToPath(u)) !== path.normalize(TITLEBAR_FILE)) return null;
+    const what = u.searchParams.get('do');
+    return what === 'minimize' || what === 'close' ? what : null;
+  } catch {
+    return null;
+  }
+}
+
 function secureWebPreferences(withPreload, display) {
   return {
     contextIsolation: true,
@@ -251,7 +263,7 @@ function secureWebPreferences(withPreload, display) {
             `--z-desktop-version=${app.getVersion()}`,
             `--z-desktop-release=${RELEASE_NAME}`,
             ...(display ? [`--z-desktop-display=${display}`] : []),
-            ...(span && span.active() ? ['--z-desktop-span=1'] : []),
+            ...(span && span.active() ? ['--z-desktop-span=1', `--z-desktop-span-bar=${BAR_HEIGHT}`] : []),
           ],
         }
       : {}),
@@ -365,7 +377,16 @@ function barColors() {
 function layout() {
   if (!win || win.isDestroyed() || !zView) return;
   const { width, height } = win.getContentBounds();
-  const bar = isFullscreen() || (span && span.active()) ? 0 : BAR_HEIGHT;
+  // Span mode out of full screen: the bar sits over the top of the primary display only, and Z's page (which covers
+  // every display) keeps that strip free itself (api 8: span.bar).
+  const spanBar = span && span.active() ? span.barRect(BAR_HEIGHT) : null;
+  if (span && span.active()) {
+    barView.setVisible(!!spanBar);
+    if (spanBar) barView.setBounds(spanBar);
+    zView.setBounds({ x: 0, y: 0, width, height });
+    return;
+  }
+  const bar = isFullscreen() ? 0 : BAR_HEIGHT;
   barView.setVisible(bar > 0);
   barView.setBounds({ x: 0, y: 0, width, height: bar });
   zView.setBounds({ x: 0, y: bar, width, height: Math.max(0, height - bar) });
@@ -607,8 +628,19 @@ function createWindow() {
 
   barView = new WebContentsView({ webPreferences: secureWebPreferences(false) });
   barView.setBackgroundColor(barColors().color);
-  barView.webContents.loadFile(TITLEBAR_FILE, { query: { name: RELEASE_NAME || app.getVersion() } });
-  barView.webContents.on('will-navigate', (event) => event.preventDefault());
+  // Span mode: the window has no system frame, so the bar draws its own minimize and close buttons (span mode is fixed
+  // for the run). A button asks by trying to open the bar's own page with ?do=minimize or ?do=close; that is refused
+  // like every other navigation here, and only that exact page and those two words do anything.
+  barView.webContents.loadFile(TITLEBAR_FILE, {
+    query: { name: RELEASE_NAME || app.getVersion(), ...(spanning ? { controls: '1' } : {}) },
+  });
+  barView.webContents.on('will-navigate', (event, url) => {
+    event.preventDefault();
+    if (!spanning || !win || win.isDestroyed()) return;
+    const what = barAction(url);
+    if (what === 'minimize') win.minimize();
+    else if (what === 'close') win.close();
+  });
 
   zView = new WebContentsView({ webPreferences: secureWebPreferences(true) });
   zView.setBackgroundColor('#2b2b2d');
