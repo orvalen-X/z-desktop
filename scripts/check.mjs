@@ -1089,7 +1089,7 @@ test('navigation: the top stays on Z, frames inside Z follow their own redirects
   });
   test('span: the boot covers start, reload and sign-out, ends when Z says so or after a minute, and its page is a picture', () => {
     const main = readFileSyncSafe('src/main.js');
-    assert.ok(/if \(details && details\.isMainFrame && !details\.isSameDocument\) \{\n\s+lockMirror\.reset\(\);\n[^\n]*\n\s+spanBootStart\(\);/.test(main), 'every new page');
+    assert.ok(/if \(details && details\.isMainFrame && !details\.isSameDocument\) \{\n\s+lockMirror\.reset\(\);\n(\s+\/\/[^\n]*\n)+\s+if \(cfg\.isAppUrl\(details\.url\)\) spanBootStart\(\);\n\s+else spanBootEnd\(\);/.test(main), 'every new page of Z; the offline page at once');
     assert.ok(/if \(spanning\) spanBootStart\(\);/.test(main), 'the first page');
     assert.ok(/const BOOT_MAX_MS = 60000;/.test(main) && /bootTimer = setTimeout\(spanBootEnd, BOOT_MAX_MS\);/.test(main), 'never hidden for good');
     assert.ok(/ipcMain\.handle\('zd:span:ready', \(e\) => \(fromMainZ\(e\) && span && span\.active\(\) \? spanBootEnd\(\) : false\)\);/.test(main));

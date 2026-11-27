@@ -708,8 +708,10 @@ function createWindow() {
   zView.webContents.on('did-start-navigation', (details) => {
     if (details && details.isMainFrame && !details.isSameDocument) {
       lockMirror.reset();
-      // span mode: the new page boots on the main display, the others show the Z logo until it is ready
-      spanBootStart();
+      // span mode: a new page of Z boots on the main display, the others show the Z logo until it is ready. The
+      // app's own offline page never says ready, so it gets every display at once (Closure NIT 1 on #26).
+      if (cfg.isAppUrl(details.url)) spanBootStart();
+      else spanBootEnd();
     }
   });
   // A new page of Z (reload, sign-out) opens its own windows: the old page's are closed.
