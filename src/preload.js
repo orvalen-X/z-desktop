@@ -16,6 +16,8 @@
 //   the windows handed to it.
 // - carrying windows (api 7): while a window is dragged across displays, the Z on the display under the cursor shows
 //   it under the hand (enter, follow, leave), and the Z it left closes its own only once it landed there.
+// - one Z across all displays (api 8): whether this run spans every display, and, for Z's own window only, switching
+//   it for the next start (Z starts again by itself).
 // No file, system or network access is exposed to the page. The main process also checks that each request
 // comes from Z's own page (not from an app frame inside it) before it does anything.
 
@@ -64,12 +66,18 @@ contextBridge.exposeInMainWorld(
   'zDesktop',
   Object.freeze({
     isDesktopApp: true,
-    api: 7,
+    api: 8,
     platform: process.platform,
     version: arg('z-desktop-version'),
     release: arg('z-desktop-release'),
     display: Object.freeze({ id: arg('z-desktop-display') || null, main: !arg('z-desktop-display') }),
     desks: Object.freeze({ set: (on) => ipcRenderer.invoke('zd:desks:set', on === true) }),
+    // api 8: one Z across all displays. active = this run (fixed until Z starts again); set() restarts Z when it changes.
+    span: Object.freeze({
+      active: arg('z-desktop-span') === '1',
+      get: () => ipcRenderer.invoke('zd:span:get'),
+      set: (on) => ipcRenderer.invoke('zd:span:set', on === true),
+    }),
     windows: Object.freeze({
       send: (spec) => ipcRenderer.invoke('zd:window:send', spec),
       arrived: (token, ok) => ipcRenderer.invoke('zd:window:arrived', { token: typeof token === 'string' ? token : null, ok: ok === true }),

@@ -16,6 +16,7 @@ const { createDesks } = require('./desks');
 const { createLockMirror } = require('./lockMirror');
 const { createWindowMove } = require('./windowMove');
 const { createWindowLive } = require('./windowLive');
+const { createSpan } = require('./span');
 const { randomBytes } = require('node:crypto');
 const { createNavigationGuard } = require('./navGuard');
 const pkg = require('../package.json');
@@ -42,7 +43,7 @@ let zView = null;
 let barView = null;
 let offline = false;
 let retryTimer = null;
-let prefs = { lang: null, perms: {}, updSkipped: null, mainDisplay: null };
+let prefs = { lang: null, perms: {}, updSkipped: null, mainDisplay: null, span: false };
 const RESET_ARG = '--reset-permissions';
 const UPDATE_ARG = '--check-updates';
 
@@ -58,6 +59,7 @@ function loadPrefs() {
     if (p && p.perms && typeof p.perms === 'object') prefs.perms = p.perms;
     if (p && typeof p.updSkipped === 'string') prefs.updSkipped = p.updSkipped;
     if (p && typeof p.mainDisplay === 'string' && p.mainDisplay.length <= 40) prefs.mainDisplay = p.mainDisplay;
+    if (p && p.span === true) prefs.span = true;
   } catch {
     /* first run */
   }
@@ -242,6 +244,7 @@ function secureWebPreferences(withPreload, display) {
             `--z-desktop-version=${app.getVersion()}`,
             `--z-desktop-release=${RELEASE_NAME}`,
             ...(display ? [`--z-desktop-display=${display}`] : []),
+            ...(span && span.active() ? ['--z-desktop-span=1'] : []),
           ],
         }
       : {}),
@@ -344,7 +347,7 @@ function rememberZLanguage() {
 
 // ---------- full screen and the window bar ----------
 
-const isFullscreen = () => !!win && !win.isDestroyed() && win.isFullScreen();
+const isFullscreen = () => !!win && !win.isDestroyed() && (span && span.active() ? span.full() : win.isFullScreen());
 
 function barColors() {
   const dark = nativeTheme.shouldUseDarkColors;
@@ -355,7 +358,7 @@ function barColors() {
 function layout() {
   if (!win || win.isDestroyed() || !zView) return;
   const { width, height } = win.getContentBounds();
-  const bar = isFullscreen() ? 0 : BAR_HEIGHT;
+  const bar = isFullscreen() || (span && span.active()) ? 0 : BAR_HEIGHT;
   barView.setVisible(bar > 0);
   barView.setBounds({ x: 0, y: 0, width, height: bar });
   zView.setBounds({ x: 0, y: bar, width, height: Math.max(0, height - bar) });
@@ -371,11 +374,40 @@ function tellZ() {
 // Leaving full screen gives a maximized window (O 26.11: Z keeps its size, the system's bars appear around it).
 function setFullscreen(on) {
   if (!win || win.isDestroyed()) return false;
+  if (span && span.active()) {
+    // Span mode: one window over every display, so full screen is the same everywhere (O 27.11: all together).
+    if (on !== span.full()) {
+      span.setFull(on);
+      fitSpan();
+      tellZ();
+      liftSpan();
+    }
+    return on;
+  }
   if (on !== isFullscreen()) win.setFullScreen(on);
   return on;
 }
 function toggleFullscreen() {
   return setFullscreen(!isFullscreen());
+}
+
+// Span mode: Z's window covers every display (or every work area out of full screen) and follows display changes.
+let span = null;
+function fitSpan() {
+  if (!win || win.isDestroyed() || !span) return;
+  const b = span.bounds();
+  if (b) win.setBounds(b);
+  layout();
+}
+// While Z has the focus and is full screen, its window sits above the taskbars (Windows and Linux draw a taskbar
+// over a window that only covers it). Another app taking the focus lets them back.
+function liftSpan() {
+  if (!win || win.isDestroyed() || !span || !span.active()) return;
+  try {
+    win.setAlwaysOnTop(span.full() && win.isFocused(), 'screen-saver');
+  } catch {
+    /* the window is closing */
+  }
 }
 
 // ---------- requests from Z's page ----------
@@ -407,6 +439,7 @@ const autostart = createAutostart({
 
 // Displays (layer 0): read only. The screen module exists only after the app is ready, so this is made there.
 let displays = null;
+const NO_SPAN = Object.freeze({ supported: false, on: false, active: false, restarting: false });
 const NO_DISPLAYS = { displays: [], system: { platform: process.platform, wayland: false, canOpenSettings: false, canChange: false } };
 function sendDisplays(snap) {
   if (zView && !zView.webContents.isDestroyed()) zView.webContents.send('zd:displays', snap);
@@ -463,6 +496,7 @@ function startDisplays() {
     webPreferences: secureWebPreferences(false),
     zWindow: () => win,
     send: (snap) => {
+      if (span && span.active()) fitSpan();
       if (surfaces) surfaces.prune();
       if (desks) desks.sync();
       sendDisplays(snap);
@@ -504,6 +538,9 @@ function listenToZ() {
   ipcMain.handle('zd:window:drag', (e, spec) => (fromZ(e) && windowLive ? windowLive.start(e.sender, spec) : { ok: false }));
   ipcMain.handle('zd:window:drop', (e, answer) => (fromZ(e) && windowLive ? windowLive.drop(e.sender, answer) : { ok: false }));
   ipcMain.handle('zd:desks:set', (e, on) => (fromMainZ(e) && desks && typeof on === 'boolean' ? desks.setEnabled(on) : false));
+  // api 8: one Z across all displays (span mode), read by any Z, switched only by Z's own window.
+  ipcMain.handle('zd:span:get', (e) => (fromZ(e) && span ? span.get() : NO_SPAN));
+  ipcMain.handle('zd:span:set', (e, on) => (fromMainZ(e) && span && typeof on === 'boolean' ? span.set(on) : NO_SPAN));
   // Extend: a one-time window name for one display (Z then calls window.open('', name)).
   ipcMain.handle('zd:displays:surface', (e, id) =>
     fromMainZ(e) && surfaces && (typeof id === 'string' || typeof id === 'number') ? surfaces.prepare(String(id)) : null,
@@ -516,10 +553,29 @@ function listenToZ() {
 
 // ---------- the Z window ----------
 
+// Span mode: no frame and no system full screen; Z's window is placed over every display and stays there.
+function spanWindowOptions() {
+  return {
+    ...(span.bounds() || { width: 1440, height: 900 }),
+    show: false,
+    frame: false,
+    fullscreen: false,
+    fullscreenable: false,
+    maximizable: false,
+    resizable: false,
+    movable: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#2b2b2d',
+    title: RELEASE_NAME ? `Z ${RELEASE_NAME}` : 'Z',
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+  };
+}
+
 function createWindow() {
   // The display the person chose for Z (Settings > Displays > Main display), when it is still connected.
   const start = surfaces ? surfaces.startBounds() : null;
-  win = new BaseWindow({
+  const spanning = !!span && span.active();
+  win = new BaseWindow(spanning ? spanWindowOptions() : {
     width: 1440,
     height: 900,
     ...(start || {}),
@@ -537,6 +593,10 @@ function createWindow() {
     titleBarStyle: 'hidden',
     ...(isMac ? { trafficLightPosition: { x: 12, y: 10 } } : { titleBarOverlay: barColors() }),
   });
+  if (spanning) {
+    win.on('focus', liftSpan);
+    win.on('blur', liftSpan);
+  }
 
   barView = new WebContentsView({ webPreferences: secureWebPreferences(false) });
   barView.setBackgroundColor(barColors().color);
@@ -571,6 +631,8 @@ function createWindow() {
     if (shown || !win || win.isDestroyed()) return;
     shown = true;
     win.show();
+    // Some systems keep a new window inside one display: place it over all of them again once it shows.
+    if (spanning) fitSpan();
     zView.webContents.focus();
   };
   zView.webContents.once('dom-ready', show);
@@ -599,7 +661,7 @@ function createWindow() {
   nativeTheme.on('updated', () => {
     if (!win || win.isDestroyed()) return;
     barView.setBackgroundColor(barColors().color);
-    if (!isMac) win.setTitleBarOverlay(barColors());
+    if (!isMac && !spanning) win.setTitleBarOverlay(barColors());
   });
 
   // F11 everywhere (and Ctrl+Cmd+F on Mac through the menu) switches full screen.
@@ -749,18 +811,8 @@ app.on('second-instance', (event, argv) => {
 // Every page, window and frame gets the same guards, once.
 app.on('web-contents-created', (event, wc) => guardContents(wc));
 
-app.whenReady().then(() => {
-  app.userAgentFallback = userAgent();
-  loadPrefs();
-  // The file also marks this folder as Z's: the Windows uninstaller deletes the folder only when it finds it.
-  if (!fs.existsSync(prefsPath())) savePrefs();
-  hardenSession(session.defaultSession);
-  // The installer passes the person's "start with the computer" checkbox once, on the first start.
-  const startWithComputer = autostartFromArgs(process.argv);
-  if (startWithComputer !== null) autostart.set(startWithComputer);
-  listenToZ();
-  buildMenu();
-  buildIconMenu();
+// Extend, way A and way B (not in span mode). Made after the app is ready.
+function startExtend() {
   surfaces = createSurfaces({ screen, randomBytes, isMac, isWin: process.platform === 'win32', prefs, savePrefs });
   desks = createDesks({
     BrowserWindow,
@@ -780,6 +832,33 @@ app.whenReady().then(() => {
         }
       }),
   });
+}
+
+app.whenReady().then(() => {
+  app.userAgentFallback = userAgent();
+  loadPrefs();
+  // The file also marks this folder as Z's: the Windows uninstaller deletes the folder only when it finds it.
+  if (!fs.existsSync(prefsPath())) savePrefs();
+  hardenSession(session.defaultSession);
+  // The installer passes the person's "start with the computer" checkbox once, on the first start.
+  const startWithComputer = autostartFromArgs(process.argv);
+  if (startWithComputer !== null) autostart.set(startWithComputer);
+  listenToZ();
+  buildMenu();
+  buildIconMenu();
+  span = createSpan({
+    screen,
+    platform: process.platform,
+    env: process.env,
+    prefs,
+    savePrefs,
+    restart: () => {
+      app.relaunch();
+      app.quit();
+    },
+  });
+  // Span mode is the whole extend: no Z per display (way A) and no blank windows per display (way B) in this run.
+  if (!span.active()) startExtend();
   const moveDeps = {
     screen,
     newToken: () => randomBytes(16).toString('hex'),

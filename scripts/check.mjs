@@ -295,17 +295,17 @@ test('autostart: Windows registers with --autostart, Mac without arguments', () 
 // ---------- the page API: only these names, and the release name travels with the version ----------
 test('preload exposes only the full-screen, autostart, display and extend calls', () => {
   const src = readFileSyncSafe('src/preload.js');
-  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'", "'zd:window:send'", "'zd:window:arrived'", "'zd:window:receive'", "'zd:window:drag'", "'zd:window:drop'", "'zd:window:live'"].includes(ch), ch);
-  assert.ok(/api: 7,/.test(src), 'api 7');
+  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'", "'zd:window:send'", "'zd:window:arrived'", "'zd:window:receive'", "'zd:window:drag'", "'zd:window:drop'", "'zd:window:live'", "'zd:span:get'", "'zd:span:set'"].includes(ch), ch);
+  assert.ok(/api: 8,/.test(src), 'api 8');
   assert.ok(!/require\('(?!electron')/.test(src), 'preload requires only electron');
 });
 test('main checks every Z request comes from Z itself', () => {
   const src = readFileSyncSafe('src/main.js');
   const handlers = src.match(/ipcMain\.handle\('zd:[a-z:]+', \([^)]*\) =>\s*\(?\s*from(Main)?Z\(e\)/g) || [];
   assert.equal(handlers.length, (src.match(/ipcMain\.handle\(/g) || []).length);
-  assert.equal(handlers.length, 19);
-  // What only Z's own window decides: extend on/off, the one-time window names, the main display, autostart, the lock.
-  for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set', 'zd:lock:set']) {
+  assert.equal(handlers.length, 21);
+  // What only Z's own window decides: extend on/off, span mode, the one-time window names, the main display, autostart, the lock.
+  for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set', 'zd:lock:set', 'zd:span:set']) {
     assert.ok(new RegExp(`ipcMain\\.handle\\('${ch}', \\([^)]*\\) =>\\s*\\(?\\s*fromMainZ\\(e\\)`).test(src), ch);
   }
   // Asking to lock and reporting activity come only from a Z on an extra display, and go only to Z's own window.
@@ -1005,6 +1005,85 @@ test('navigation: the top stays on Z, frames inside Z follow their own redirects
   assert.ok(/createNavigationGuard\(/.test(main));
 });
 
+// ---------- one Z across all displays (span mode, api 8) ----------
+{
+  const { createSpan, spanSupported, unionOf } = require('../src/span.js');
+  const D = (x, y, w, h, wa) => ({ bounds: { x, y, width: w, height: h }, workArea: wa || { x, y, width: w, height: h - 40 } });
+  test('span: offered on Windows and Linux X11 only', () => {
+    assert.equal(spanSupported('win32', {}), true);
+    assert.equal(spanSupported('linux', { XDG_SESSION_TYPE: 'x11' }), true);
+    assert.equal(spanSupported('linux', { XDG_SESSION_TYPE: 'wayland' }), false);
+    assert.equal(spanSupported('darwin', {}), false);
+  });
+  test('span: the rectangle around every display, also left of and above the main one', () => {
+    assert.deepEqual(unionOf([D(0, 0, 1920, 1080), D(-1536, 200, 1536, 864)], 'bounds'), { x: -1536, y: 0, width: 3456, height: 1080 });
+    assert.deepEqual(unionOf([D(0, 0, 1920, 1080), D(0, -1080, 1920, 1080)], 'workArea'), { x: 0, y: -1080, width: 1920, height: 2120 });
+    assert.equal(unionOf([], 'bounds'), null);
+    assert.equal(unionOf([{ bounds: { x: 'a', y: 0, width: 10, height: 10 } }, { bounds: { x: 0, y: 0, width: 0, height: 5 } }], 'bounds'), null);
+    assert.equal(unionOf(null, 'bounds'), null);
+  });
+  const mk = (prefs, platform = 'win32', list = [D(0, 0, 1920, 1080), D(1920, 0, 1920, 1080)]) => {
+    const log = { saved: 0, restarts: 0, timers: [] };
+    const span = createSpan({
+      screen: { getAllDisplays: () => list },
+      platform,
+      env: {},
+      prefs,
+      savePrefs: () => log.saved++,
+      restart: () => log.restarts++,
+      setTimer: (fn) => log.timers.push(fn),
+    });
+    return { span, log };
+  };
+  test('span: off by default, nothing placed', () => {
+    const { span } = mk({});
+    assert.deepEqual(span.get(), { supported: true, on: false, active: false });
+    assert.equal(span.bounds(), null);
+  });
+  test('span: on covers every display in full screen, every work area out of it', () => {
+    const { span } = mk({ span: true });
+    assert.equal(span.active(), true);
+    assert.deepEqual(span.bounds(), { x: 0, y: 0, width: 3840, height: 1080 });
+    span.setFull(false);
+    assert.deepEqual(span.bounds(), { x: 0, y: 0, width: 3840, height: 1040 });
+  });
+  test('span: switching saves the choice and restarts once; the same mode does not restart', () => {
+    const prefs = {};
+    const { span, log } = mk(prefs);
+    assert.equal(span.set(true).restarting, true);
+    assert.equal(span.set(true).restarting, true);
+    assert.equal(prefs.span, true);
+    assert.equal(log.saved, 1);
+    assert.equal(log.timers.length, 1, 'one restart only');
+    log.timers[0]();
+    assert.equal(log.restarts, 1);
+    assert.equal(span.active(), false, 'this run keeps its mode');
+    const again = mk({ span: true });
+    assert.equal(again.span.set(true).restarting, false);
+    assert.equal(again.log.timers.length, 0);
+  });
+  test('span: Mac and Wayland never span, even with the choice saved', () => {
+    const { span, log } = mk({ span: true }, 'darwin');
+    assert.deepEqual(span.get(), { supported: false, on: false, active: false });
+    assert.equal(span.set(true).restarting, false);
+    assert.equal(log.timers.length, 0);
+    assert.equal(span.bounds(), null);
+  });
+  test('span: a bad answer from the page changes nothing', () => {
+    const prefs = {};
+    const { span, log } = mk(prefs);
+    assert.equal(span.set('yes').restarting, false);
+    assert.equal(prefs.span, undefined);
+    assert.equal(log.saved, 0);
+  });
+  test('span: main turns off both extend ways and follows display changes', () => {
+    const src = readFileSyncSafe('src/main.js');
+    assert.ok(/if \(!span\.active\(\)\) startExtend\(\);/.test(src));
+    assert.ok(/send: \(snap\) => \{\n\s+if \(span && span\.active\(\)\) fitSpan\(\);/.test(src));
+    assert.ok(/p && p\.span === true/.test(src), 'only a real true turns it on');
+  });
+}
+
 function readFileSyncSafe(f) {
   return require('node:fs').readFileSync(f, 'utf8');
 }
@@ -1015,3 +1094,4 @@ if (failed) {
   process.exit(1);
 }
 console.log('\nall checks passed');
+
