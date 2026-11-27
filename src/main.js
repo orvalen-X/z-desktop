@@ -32,6 +32,7 @@ const RETRY_STEPS_MS = [5000, 10000, 20000, 30000];
 const OFFLINE_FILE = path.join(__dirname, 'offline.html');
 const OFFLINE_URL = pathToFileURL(OFFLINE_FILE).href;
 const TITLEBAR_FILE = path.join(__dirname, 'titlebar.html');
+const BOOT_FILE = path.join(__dirname, 'boot.html');
 // Height of the window bar shown when Z leaves full screen (sketch 3). In full screen it is 0.
 const BAR_HEIGHT = 34;
 // The name people see instead of a version number (O 26.11: "Z · DNA"); the number stays for updates.
@@ -383,7 +384,11 @@ function layout() {
   if (span && span.active()) {
     barView.setVisible(!!spanBar);
     if (spanBar) barView.setBounds(spanBar);
-    zView.setBounds({ x: 0, y: 0, width, height });
+    // While Z's page loads it covers the main display only, and every other display shows the app's Z logo
+    // (spanBoot below); then Z's page covers every display.
+    const box = spanBooting ? span.mainBox(BAR_HEIGHT) : null;
+    zView.setBounds(box || { x: 0, y: 0, width, height });
+    placeBootViews(box ? span.bootRects() : []);
     return;
   }
   const bar = isFullscreen() ? 0 : BAR_HEIGHT;
@@ -421,6 +426,53 @@ function toggleFullscreen() {
 
 // Span mode: Z's window covers every display (or every work area out of full screen) and follows display changes.
 let span = null;
+
+// Span mode, while Z's page loads (start, reload, sign-out; O 27.11: the loading logo in the centre of every display,
+// even with 4): Z's page covers the main display only, so its own boot screen (whatever theme) is that display's size
+// and centred on it, and every other display shows boot.html. Z's page says when its boot screen is gone
+// (span.ready, api 8); a page that never says it gets every display after BOOT_MAX_MS, so nothing stays hidden.
+const BOOT_MAX_MS = 60000;
+let spanBooting = false;
+let bootTimer = null;
+const bootViews = [];
+function spanBootStart() {
+  if (!span || !span.active()) return;
+  spanBooting = true;
+  clearTimeout(bootTimer);
+  bootTimer = setTimeout(spanBootEnd, BOOT_MAX_MS);
+  layout();
+}
+function spanBootEnd() {
+  clearTimeout(bootTimer);
+  bootTimer = null;
+  if (!spanBooting) return true;
+  spanBooting = false;
+  layout();
+  return true;
+}
+// One boot.html view per other display: made when needed, taken away when the displays are fewer or Z is ready.
+function placeBootViews(rects) {
+  if (!win || win.isDestroyed()) return;
+  while (bootViews.length > rects.length) {
+    const v = bootViews.pop();
+    try {
+      win.contentView.removeChildView(v);
+      v.webContents.close();
+    } catch {
+      /* the window is closing */
+    }
+  }
+  while (bootViews.length < rects.length) {
+    const v = new WebContentsView({ webPreferences: secureWebPreferences(false) });
+    v.setBackgroundColor('#121316');
+    v.webContents.on('will-navigate', (event) => event.preventDefault());
+    v.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    v.webContents.loadFile(BOOT_FILE);
+    win.contentView.addChildView(v);
+    bootViews.push(v);
+  }
+  rects.forEach((r, i) => bootViews[i].setBounds(r));
+}
 function fitSpan() {
   if (!win || win.isDestroyed() || !span) return;
   const b = span.bounds();
@@ -569,6 +621,8 @@ function listenToZ() {
   // api 8: one Z across all displays (span mode), read by any Z, switched only by Z's own window.
   ipcMain.handle('zd:span:get', (e) => (fromZ(e) && span ? span.get() : NO_SPAN));
   ipcMain.handle('zd:span:set', (e, on) => (fromMainZ(e) && span && typeof on === 'boolean' ? span.set(on) : NO_SPAN));
+  // Z's page: its boot screen is gone, so it may cover every display now (span mode; a no-op otherwise)
+  ipcMain.handle('zd:span:ready', (e) => (fromMainZ(e) && span && span.active() ? spanBootEnd() : false));
   // Extend: a one-time window name for one display (Z then calls window.open('', name)).
   ipcMain.handle('zd:displays:surface', (e, id) =>
     fromMainZ(e) && surfaces && (typeof id === 'string' || typeof id === 'number') ? surfaces.prepare(String(id)) : null,
@@ -652,7 +706,11 @@ function createWindow() {
   });
   // A new page of Z (reload, sign-out), a crash or a closed window: every display shows the lock until Z says again.
   zView.webContents.on('did-start-navigation', (details) => {
-    if (details && details.isMainFrame && !details.isSameDocument) lockMirror.reset();
+    if (details && details.isMainFrame && !details.isSameDocument) {
+      lockMirror.reset();
+      // span mode: the new page boots on the main display, the others show the Z logo until it is ready
+      spanBootStart();
+    }
   });
   // A new page of Z (reload, sign-out) opens its own windows: the old page's are closed.
   zView.webContents.on('did-navigate', () => surfaces && surfaces.closeAll());
@@ -662,6 +720,7 @@ function createWindow() {
 
   win.contentView.addChildView(zView);
   win.contentView.addChildView(barView);
+  if (spanning) spanBootStart();
   layout();
 
   // Show once Z has something to paint (or after a moment, so a slow network never hides the window).
