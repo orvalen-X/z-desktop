@@ -14,6 +14,7 @@ const { createDisplays } = require('./displays');
 const { createSurfaces } = require('./surfaces');
 const { createDesks } = require('./desks');
 const { createLockMirror } = require('./lockMirror');
+const { createWindowMove } = require('./windowMove');
 const { randomBytes } = require('node:crypto');
 const { createNavigationGuard } = require('./navGuard');
 const pkg = require('../package.json');
@@ -423,6 +424,9 @@ function mainDisplayId() {
 }
 // Extend, way A, layer 3: one lock for every display. Z's own window locks and unlocks; the others only show it.
 const lockMirror = createLockMirror({ send: (state) => desks && desks.each((wc) => wc.send('zd:lock', state)) });
+// Extend, way A, layer 4: a window dragged off one display opens on the display under the cursor. Made with the
+// screen module, after the app is ready.
+let windowMove = null;
 // A request from a Z on an extra display, passed on to Z's own window (which decides).
 function askMainZ(channel) {
   if (!zView || zView.webContents.isDestroyed()) return false;
@@ -484,6 +488,10 @@ function listenToZ() {
   ipcMain.handle('zd:lock:activity', (e) =>
     fromZ(e) && !fromMainZ(e) && lockMirror.activity() ? askMainZ('zd:lock:activity') : false,
   );
+  // Layer 4: any Z may hand a window to the Z on the display under the cursor (windowMove checks the rest).
+  ipcMain.handle('zd:window:send', (e, spec) => (fromZ(e) && windowMove ? windowMove.send(e.sender, spec) : { ok: false }));
+  // r2: the target Z answers that it opened the window (or refused); only then does the Z it left close its own.
+  ipcMain.handle('zd:window:arrived', (e, answer) => (fromZ(e) && windowMove ? windowMove.arrived(e.sender, answer) : { ok: false }));
   ipcMain.handle('zd:desks:set', (e, on) => (fromMainZ(e) && desks && typeof on === 'boolean' ? desks.setEnabled(on) : false));
   // Extend: a one-time window name for one display (Z then calls window.open('', name)).
   ipcMain.handle('zd:displays:surface', (e, id) =>
@@ -760,6 +768,15 @@ app.whenReady().then(() => {
           toggleFullscreen();
         }
       }),
+  });
+  windowMove = createWindowMove({
+    screen,
+    newToken: () => randomBytes(16).toString('hex'),
+    isLocked: () => lockMirror.get().locked,
+    profileOf: () => lockMirror.get().profile,
+    senderDisplay: (wc) => (zView && wc === zView.webContents ? mainDisplayId() : desks ? desks.displayOf(wc) : null),
+    targetOf: (id) =>
+      id === mainDisplayId() ? (zView && !zView.webContents.isDestroyed() ? zView.webContents : null) : desks ? desks.webContentsOf(id) : null,
   });
   app.on('browser-window-focus', checkFocus);
   app.on('browser-window-blur', checkFocus);

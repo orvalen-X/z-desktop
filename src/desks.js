@@ -163,6 +163,12 @@ function createDesks({ BrowserWindow, screen, isMac, isWin, webPreferences, star
     return null;
   }
 
+  // The web contents of the Z on a display, or null.
+  function webContentsOf(id) {
+    const w = open.get(String(id));
+    return w && !w.isDestroyed() && !w.webContents.isDestroyed() ? w.webContents : null;
+  }
+
   const owns = (w) => {
     for (const x of open.values()) if (x === w) return true;
     return false;
@@ -180,6 +186,7 @@ function createDesks({ BrowserWindow, screen, isMac, isWin, webPreferences, star
     setActive,
     closeAll,
     displayOf,
+    webContentsOf,
     owns,
     each,
     count: () => open.size,

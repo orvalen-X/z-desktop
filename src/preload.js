@@ -12,6 +12,8 @@
 //   gets none), and, for Z's own window only, turning a whole Z on every extra display on or off.
 // - one lock for every display (api 5): Z's own window tells its lock state; a Z on an extra display reads it, hears
 //   when it changes, may ask Z's own window to lock (never to unlock) and tells it the person is working there.
+// - moving windows (api 6): a Z hands a window it is letting go to the Z on the display under the cursor, and hears
+//   the windows handed to it.
 // No file, system or network access is exposed to the page. The main process also checks that each request
 // comes from Z's own page (not from an app frame inside it) before it does anything.
 
@@ -49,6 +51,8 @@ const lockListeners = new Set();
 ipcRenderer.on('zd:lock', (_event, state) => fanOut(lockListeners, state));
 const lockRequestListeners = new Set();
 ipcRenderer.on('zd:lock:request', () => fanOut(lockRequestListeners));
+const receiveListeners = new Set();
+ipcRenderer.on('zd:window:receive', (_event, win) => fanOut(receiveListeners, win));
 const activityListeners = new Set();
 ipcRenderer.on('zd:lock:activity', () => fanOut(activityListeners));
 
@@ -56,12 +60,17 @@ contextBridge.exposeInMainWorld(
   'zDesktop',
   Object.freeze({
     isDesktopApp: true,
-    api: 5,
+    api: 6,
     platform: process.platform,
     version: arg('z-desktop-version'),
     release: arg('z-desktop-release'),
     display: Object.freeze({ id: arg('z-desktop-display') || null, main: !arg('z-desktop-display') }),
     desks: Object.freeze({ set: (on) => ipcRenderer.invoke('zd:desks:set', on === true) }),
+    windows: Object.freeze({
+      send: (spec) => ipcRenderer.invoke('zd:window:send', spec),
+      arrived: (token, ok) => ipcRenderer.invoke('zd:window:arrived', { token: typeof token === 'string' ? token : null, ok: ok === true }),
+      onReceive: (fn) => subscribe(receiveListeners, fn),
+    }),
     lock: Object.freeze({
       get: () => ipcRenderer.invoke('zd:lock:get'),
       set: (locked, profile) =>
