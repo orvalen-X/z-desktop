@@ -41,6 +41,7 @@ If Windows says the app was blocked and offers no **Run anyway**, Smart App Cont
 ## Using it
 
 - Z always opens in full screen. **F11** (on macOS also **Ctrl+Cmd+F**), or the full-screen button in Z's top bar, switches to a maximized window with a slim Z window bar, and back.
+- On Windows, while Z is in full screen and has the focus, the **Windows key** is Z's: it opens Z's launcher (Win+D, Win+E, Win+V and Win+Shift+S open Z's own desktop, files, clipboard history and Zsnip), and **Alt+Tab** opens Z's window switcher. **Ctrl+Alt+Esc** leaves full screen, and **Ctrl+Alt+Del** always reaches Windows. Locking Windows (Win+L) locks Z too. Out of full screen, or when another app has the focus, the keys are Windows' as always.
 - **Start with the computer:** off unless you turn it on (in the installer, or in Z). Z then opens in full screen when you sign in to your computer.
 - **Alt+Tab** / **Cmd+Tab** move between apps as usual.
 - Links to other websites open in your normal browser.

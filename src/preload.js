@@ -18,6 +18,8 @@
 //   it under the hand (enter, follow, leave), and the Z it left closes its own only once it landed there.
 // - one Z across all displays (api 8): whether this run spans every display, and, for Z's own window only, switching
 //   it for the next start (Z starts again by itself).
+// - the Windows key (api 9): whether it is Z's while Z is in full screen, switching it (Z's own window only), and
+//   hearing that Windows locked (Win+L), so Z locks too. The keys themselves reach the page as always.
 // No file, system or network access is exposed to the page. The main process also checks that each request
 // comes from Z's own page (not from an app frame inside it) before it does anything.
 
@@ -59,6 +61,8 @@ const receiveListeners = new Set();
 ipcRenderer.on('zd:window:receive', (_event, win) => fanOut(receiveListeners, win));
 const liveListeners = new Set();
 ipcRenderer.on('zd:window:live', (_event, msg) => fanOut(liveListeners, msg));
+const osLockListeners = new Set();
+ipcRenderer.on('zd:keys:oslock', () => fanOut(osLockListeners));
 const activityListeners = new Set();
 ipcRenderer.on('zd:lock:activity', () => fanOut(activityListeners));
 
@@ -66,7 +70,7 @@ contextBridge.exposeInMainWorld(
   'zDesktop',
   Object.freeze({
     isDesktopApp: true,
-    api: 8,
+    api: 9,
     platform: process.platform,
     version: arg('z-desktop-version'),
     release: arg('z-desktop-release'),
@@ -106,6 +110,12 @@ contextBridge.exposeInMainWorld(
       set: (on) => ipcRenderer.invoke('zd:fs:set', on === true),
       toggle: () => ipcRenderer.invoke('zd:fs:toggle'),
       onChange: (fn) => subscribe(fsListeners, fn),
+    }),
+    // api 9: the Windows key belongs to Z while Z is in full screen (Windows; O 27.11)
+    keys: Object.freeze({
+      get: () => ipcRenderer.invoke('zd:keys:get'),
+      set: (on) => ipcRenderer.invoke('zd:keys:set', on === true),
+      onSystemLock: (fn) => subscribe(osLockListeners, fn),
     }),
     autostart: Object.freeze({
       get: () => ipcRenderer.invoke('zd:autostart:get'),
