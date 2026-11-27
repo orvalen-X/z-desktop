@@ -934,7 +934,7 @@ test('main checks every Z request comes from Z itself', () => {
     l.tick();
     const pl = l.L.drop('main', { token: tl, drop: true });
     l.lock();
-    assert.deepEqual(l.L.arrived(l.wc2, { token: tl, ok: true }), { ok: true });
+    assert.deepEqual(l.L.arrived(l.wc2, { token: tl, ok: true }), { ok: false }, 'the target is told no: it closes its copy');
     assert.deepEqual(await pl, { ok: false }, 'locked while it landed');
     assert.deepEqual(kinds(l.got[2]), ['enter', 'land', 'leave']);
     const d = setup();

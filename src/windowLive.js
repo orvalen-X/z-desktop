@@ -161,9 +161,11 @@ function createWindowLive({ screen, isLocked, profileOf, senderDisplay, targetOf
     const token = answer && typeof answer.token === 'string' ? answer.token : null;
     const w = token ? landing.get(token) : null;
     if (!w || w.target !== sender) return { ok: false };
-    // Closure NIT: Z locked while it landed: it did not land (the window stays where it came from)
-    w.finish(answer.ok === true && !isLocked());
-    return { ok: true };
+    // Closure NIT + Audit M1 r2: Z locked while it landed: it did not land. The window stays where it came from, and the
+    // target is told no too, so it closes the copy it opened (never on both displays).
+    const ok = answer.ok === true && !isLocked();
+    w.finish(ok);
+    return { ok };
   }
 
   return { start, drop, arrived, owns: (token) => typeof token === 'string' && landing.has(token) };
