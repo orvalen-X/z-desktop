@@ -95,6 +95,8 @@ function createWindowMove({ screen, isLocked, profileOf, senderDisplay, targetOf
     if (point.x < b.x || point.y < b.y || point.x >= b.x + b.width || point.y >= b.y + b.height) return no();
     const wc = targetOf(String(display.id));
     if (!wc || (typeof wc.isDestroyed === 'function' && wc.isDestroyed())) return no();
+    // Audit NIT: a Z that went away leaves nothing behind here.
+    for (const k of Array.from(lastSend.keys())) if (k && typeof k.isDestroyed === 'function' && k.isDestroyed()) lastSend.delete(k);
     lastSend.set(sender, now());
     const token = newToken();
     return new Promise((resolve) => {
