@@ -79,6 +79,8 @@ contextBridge.exposeInMainWorld(
       bar: arg('z-desktop-span') === '1' ? Math.max(0, Math.min(64, Number(arg('z-desktop-span-bar')) || 0)) : 0,
       get: () => ipcRenderer.invoke('zd:span:get'),
       set: (on) => ipcRenderer.invoke('zd:span:set', on === true),
+      // Z's boot screen is gone: the page may cover every display now (while it loads it covers the main one only)
+      ready: () => ipcRenderer.invoke('zd:span:ready'),
     }),
     windows: Object.freeze({
       send: (spec) => ipcRenderer.invoke('zd:window:send', spec),

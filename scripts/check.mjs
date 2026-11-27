@@ -295,7 +295,7 @@ test('autostart: Windows registers with --autostart, Mac without arguments', () 
 // ---------- the page API: only these names, and the release name travels with the version ----------
 test('preload exposes only the full-screen, autostart, display and extend calls', () => {
   const src = readFileSyncSafe('src/preload.js');
-  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'", "'zd:window:send'", "'zd:window:arrived'", "'zd:window:receive'", "'zd:window:drag'", "'zd:window:drop'", "'zd:window:live'", "'zd:span:get'", "'zd:span:set'"].includes(ch), ch);
+  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'", "'zd:window:send'", "'zd:window:arrived'", "'zd:window:receive'", "'zd:window:drag'", "'zd:window:drop'", "'zd:window:live'", "'zd:span:get'", "'zd:span:set'", "'zd:span:ready'"].includes(ch), ch);
   assert.ok(/api: 8,/.test(src), 'api 8');
   assert.ok(!/require\('(?!electron')/.test(src), 'preload requires only electron');
 });
@@ -303,9 +303,9 @@ test('main checks every Z request comes from Z itself', () => {
   const src = readFileSyncSafe('src/main.js');
   const handlers = src.match(/ipcMain\.handle\('zd:[a-z:]+', \([^)]*\) =>\s*\(?\s*from(Main)?Z\(e\)/g) || [];
   assert.equal(handlers.length, (src.match(/ipcMain\.handle\(/g) || []).length);
-  assert.equal(handlers.length, 21);
+  assert.equal(handlers.length, 22);
   // What only Z's own window decides: extend on/off, span mode, the one-time window names, the main display, autostart, the lock.
-  for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set', 'zd:lock:set', 'zd:span:set']) {
+  for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set', 'zd:lock:set', 'zd:span:set', 'zd:span:ready']) {
     assert.ok(new RegExp(`ipcMain\\.handle\\('${ch}', \\([^)]*\\) =>\\s*\\(?\\s*fromMainZ\\(e\\)`).test(src), ch);
   }
   // Asking to lock and reporting activity come only from a Z on an extra display, and go only to Z's own window.
@@ -1061,6 +1061,45 @@ test('navigation: the top stays on Z, frames inside Z follow their own redirects
     const off = createSpan({ screen: { getAllDisplays: () => [laptop], getPrimaryDisplay: () => laptop }, platform: 'win32', env: {}, prefs: {}, savePrefs: () => {}, restart: () => {} });
     off.setFull(false);
     assert.equal(off.barRect(34), null, 'not span mode: no bar here');
+  });
+  test('span: while Z loads, its page covers the main display only and every other display gets the Z logo', () => {
+    // O's displays 27.11, and two more: 4 displays (O: "even with 4 connected")
+    const wide = D(-3440, -240, 3440, 1440);
+    const laptop = D(0, 0, 1920, 1200);
+    const above = D(0, -1080, 1920, 1080);
+    const right = D(1920, 0, 1280, 1024);
+    const span = createSpan({
+      screen: { getAllDisplays: () => [wide, laptop, above, right], getPrimaryDisplay: () => laptop },
+      platform: 'win32', env: {}, prefs: { span: true }, savePrefs: () => {}, restart: () => {},
+    });
+    // the window starts at (-3440, -1080): the union of all four
+    assert.deepEqual(span.mainBox(34), { x: 3440, y: 1080, width: 1920, height: 1200 }, 'full screen: no bar');
+    assert.deepEqual(span.bootRects(), [
+      { x: 0, y: 840, width: 3440, height: 1440 },
+      { x: 3440, y: 0, width: 1920, height: 1080 },
+      { x: 5360, y: 1080, width: 1280, height: 1024 },
+    ]);
+    span.setFull(false);
+    // out of full screen: work areas (40 px taskbar), and the main box starts below the window bar
+    assert.deepEqual(span.mainBox(34), { x: 3440, y: 1080 + 34, width: 1920, height: 1160 - 34 });
+    assert.equal(span.bootRects().length, 3);
+    const off = createSpan({ screen: { getAllDisplays: () => [laptop], getPrimaryDisplay: () => laptop }, platform: 'win32', env: {}, prefs: {}, savePrefs: () => {}, restart: () => {} });
+    assert.equal(off.mainBox(34), null);
+    assert.deepEqual(off.bootRects(), []);
+  });
+  test('span: the boot covers start, reload and sign-out, ends when Z says so or after a minute, and its page is a picture', () => {
+    const main = readFileSyncSafe('src/main.js');
+    assert.ok(/if \(details && details\.isMainFrame && !details\.isSameDocument\) \{\n\s+lockMirror\.reset\(\);\n(\s+\/\/[^\n]*\n)+\s+if \(cfg\.isAppUrl\(details\.url\)\) spanBootStart\(\);\n\s+else spanBootEnd\(\);/.test(main), 'every new page of Z; the offline page at once');
+    assert.ok(/if \(spanning\) spanBootStart\(\);/.test(main), 'the first page');
+    assert.ok(/const BOOT_MAX_MS = 60000;/.test(main) && /bootTimer = setTimeout\(spanBootEnd, BOOT_MAX_MS\);/.test(main), 'never hidden for good');
+    assert.ok(/ipcMain\.handle\('zd:span:ready', \(e\) => \(fromMainZ\(e\) && span && span\.active\(\) \? spanBootEnd\(\) : false\)\);/.test(main));
+    assert.ok(/const v = new WebContentsView\(\{ webPreferences: secureWebPreferences\(false\) \}\);/.test(main), 'no preload for the logo views');
+    assert.ok(/v\.webContents\.on\('will-navigate', \(event\) => event\.preventDefault\(\)\);/.test(main));
+    assert.ok(/v\.webContents\.setWindowOpenHandler\(\(\) => \(\{ action: 'deny' \}\)\);/.test(main));
+    const html = readFileSyncSafe('src/boot.html');
+    assert.ok(!/<script/i.test(html), 'no script at all');
+    assert.ok(html.includes(`content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"`));
+    assert.ok(!/https?:\/\//.test(html.replace(/xmlns='http:\/\/www\.w3\.org\/2000\/svg'/g, '')), 'no network');
   });
   test('span: the bar asks only through its own page, for minimize or close', () => {
     const main = readFileSyncSafe('src/main.js');

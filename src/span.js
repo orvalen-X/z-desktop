@@ -102,9 +102,58 @@ function createSpan({ screen, platform, env, prefs, savePrefs, restart, setTimer
     return { x: Math.round(w.x - u.x), y: Math.round(w.y - u.y), width: Math.round(w.width), height };
   }
 
+  // While Z's page loads (start, reload, sign-out), it covers the main display only, so its boot screen, whatever theme
+  // it draws, is the size of that display and centred on it (O 27.11: "the loading logo in the centre of every
+  // display, even with 4"). Every other display shows the app's own Z logo (bootRects) until Z says it is ready.
+  // Window coordinates: the primary display (its work area below the bar out of full screen). null when unknown.
+  function mainBox(barHeight) {
+    if (!active) return null;
+    let p = null;
+    try {
+      p = screen.getPrimaryDisplay();
+    } catch {
+      return null;
+    }
+    const r = rect(p && (full ? p.bounds : p.workArea));
+    const u = area();
+    if (!r || !u) return null;
+    const bar = full ? 0 : Math.max(0, Math.round(Number(barHeight) || 0));
+    return {
+      x: Math.round(r.x - u.x),
+      y: Math.round(r.y - u.y) + bar,
+      width: Math.round(r.width),
+      height: Math.max(1, Math.round(r.height) - bar),
+    };
+  }
+
+  // Every display but the primary one, in window coordinates (bounds in full screen, work areas out of it); at most 16.
+  function bootRects() {
+    if (!active) return [];
+    let list = [];
+    let primary = null;
+    try {
+      list = screen.getAllDisplays();
+      primary = screen.getPrimaryDisplay();
+    } catch {
+      return [];
+    }
+    const u = area();
+    if (!u) return [];
+    const out = [];
+    for (const d of list.slice(0, MAX_DISPLAYS)) {
+      if (!d || d === primary || (primary && d.id != null && d.id === primary.id)) continue;
+      const r = rect(full ? d.bounds : d.workArea);
+      if (!r) continue;
+      out.push({ x: Math.round(r.x - u.x), y: Math.round(r.y - u.y), width: Math.round(r.width), height: Math.round(r.height) });
+    }
+    return out;
+  }
+
   return {
     active: () => active,
     barRect,
+    mainBox,
+    bootRects,
     get,
     set,
     bounds,
