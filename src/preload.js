@@ -14,6 +14,8 @@
 //   when it changes, may ask Z's own window to lock (never to unlock) and tells it the person is working there.
 // - moving windows (api 6): a Z hands a window it is letting go to the Z on the display under the cursor, and hears
 //   the windows handed to it.
+// - carrying windows (api 7): while a window is dragged across displays, the Z on the display under the cursor shows
+//   it under the hand (enter, follow, leave), and the Z it left closes its own only once it landed there.
 // No file, system or network access is exposed to the page. The main process also checks that each request
 // comes from Z's own page (not from an app frame inside it) before it does anything.
 
@@ -53,6 +55,8 @@ const lockRequestListeners = new Set();
 ipcRenderer.on('zd:lock:request', () => fanOut(lockRequestListeners));
 const receiveListeners = new Set();
 ipcRenderer.on('zd:window:receive', (_event, win) => fanOut(receiveListeners, win));
+const liveListeners = new Set();
+ipcRenderer.on('zd:window:live', (_event, msg) => fanOut(liveListeners, msg));
 const activityListeners = new Set();
 ipcRenderer.on('zd:lock:activity', () => fanOut(activityListeners));
 
@@ -60,7 +64,7 @@ contextBridge.exposeInMainWorld(
   'zDesktop',
   Object.freeze({
     isDesktopApp: true,
-    api: 6,
+    api: 7,
     platform: process.platform,
     version: arg('z-desktop-version'),
     release: arg('z-desktop-release'),
@@ -70,6 +74,10 @@ contextBridge.exposeInMainWorld(
       send: (spec) => ipcRenderer.invoke('zd:window:send', spec),
       arrived: (token, ok) => ipcRenderer.invoke('zd:window:arrived', { token: typeof token === 'string' ? token : null, ok: ok === true }),
       onReceive: (fn) => subscribe(receiveListeners, fn),
+      // api 7: carry a window with the hand while it is dragged across displays
+      drag: (spec) => ipcRenderer.invoke('zd:window:drag', spec),
+      drop: (token, drop) => ipcRenderer.invoke('zd:window:drop', { token: typeof token === 'string' ? token : null, drop: drop === true }),
+      onLive: (fn) => subscribe(liveListeners, fn),
     }),
     lock: Object.freeze({
       get: () => ipcRenderer.invoke('zd:lock:get'),

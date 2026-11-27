@@ -295,15 +295,15 @@ test('autostart: Windows registers with --autostart, Mac without arguments', () 
 // ---------- the page API: only these names, and the release name travels with the version ----------
 test('preload exposes only the full-screen, autostart, display and extend calls', () => {
   const src = readFileSyncSafe('src/preload.js');
-  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'", "'zd:window:send'", "'zd:window:arrived'", "'zd:window:receive'"].includes(ch), ch);
-  assert.ok(/api: 6,/.test(src), 'api 6');
+  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'", "'zd:window:send'", "'zd:window:arrived'", "'zd:window:receive'", "'zd:window:drag'", "'zd:window:drop'", "'zd:window:live'"].includes(ch), ch);
+  assert.ok(/api: 7,/.test(src), 'api 7');
   assert.ok(!/require\('(?!electron')/.test(src), 'preload requires only electron');
 });
 test('main checks every Z request comes from Z itself', () => {
   const src = readFileSyncSafe('src/main.js');
   const handlers = src.match(/ipcMain\.handle\('zd:[a-z:]+', \([^)]*\) =>\s*\(?\s*from(Main)?Z\(e\)/g) || [];
   assert.equal(handlers.length, (src.match(/ipcMain\.handle\(/g) || []).length);
-  assert.equal(handlers.length, 17);
+  assert.equal(handlers.length, 19);
   // What only Z's own window decides: extend on/off, the one-time window names, the main display, autostart, the lock.
   for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set', 'zd:lock:set']) {
     assert.ok(new RegExp(`ipcMain\\.handle\\('${ch}', \\([^)]*\\) =>\\s*\\(?\\s*fromMainZ\\(e\\)`).test(src), ch);
@@ -824,6 +824,151 @@ test('main checks every Z request comes from Z itself', () => {
     assert.equal(cleanWindow(loop), null, 'params that are not plain JSON');
     const c = cleanWindow({ appId: 'ok', windowKey: '', title: 5, w: 1e9, h: -3, grabX: NaN, extra: 'no', params: { f: () => 1, n: 2 } });
     assert.deepEqual(c, { appId: 'ok', windowKey: null, title: null, params: { n: 2 }, w: null, h: null, grabX: 0, grabY: 0 });
+  });
+}
+// ---------- extend, layer 6 (api 7): a window dragged across displays moves with the hand ----------
+{
+  const { createWindowLive, FOLLOW_MS, LIVE_MAX_MS, MIN_GAP_MS: LIVE_GAP } = require('../src/windowLive.js');
+  const { ARRIVE_MS } = require('../src/windowMove.js');
+  const d1 = { id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 } };
+  const d2 = { id: 2, bounds: { x: 1920, y: 0, width: 2560, height: 1440 } };
+  const d3 = { id: 3, bounds: { x: -1280, y: 0, width: 1280, height: 1024 } };
+  const setup = (opts = {}) => {
+    const got = { 2: [], 3: [] };
+    const wc2 = { send: (ch, v) => got[2].push([ch, v]), isDestroyed: () => false };
+    const wc3 = { send: (ch, v) => got[3].push([ch, v]), isDestroyed: () => false };
+    let cursor = opts.cursor || { x: 100, y: 100 };
+    let t = 1000;
+    let locked = opts.locked === true;
+    const timers = [];
+    let n = 0;
+    const L = createWindowLive({
+      screen: { getCursorScreenPoint: () => cursor, getDisplayNearestPoint: (p) => (p.x >= 1920 ? d2 : p.x < 0 ? d3 : d1) },
+      isLocked: () => locked,
+      profileOf: () => (opts.profile === undefined ? 'p1' : opts.profile),
+      senderDisplay: (s) => (s === 'main' ? '1' : null),
+      targetOf: (id) => (id === '2' ? wc2 : id === '3' ? wc3 : null),
+      now: () => t,
+      setTimer: (fn, ms) => { const h = { fn, ms, on: true }; timers.push(h); return h; },
+      clearTimer: (h) => { h.on = false; },
+      newToken: () => String(++n).padStart(32, 'a'),
+    });
+    // one follow tick (the newest one still waiting)
+    const tick = () => { const h = timers.filter((x) => x.on && x.ms === FOLLOW_MS).pop(); if (h) { h.on = false; h.fn(); } };
+    const fireArrive = () => timers.filter((x) => x.on && x.ms === ARRIVE_MS).forEach((h) => { h.on = false; h.fn(); });
+    return { L, got, wc2, wc3, move: (c) => (cursor = c), later: (ms) => (t += ms), lock: () => (locked = true), tick, fireArrive, timers };
+  };
+  const spec = { appId: 'zdocs', windowKey: 'zdocs:abc', title: 'Doc', params: { file: 'f1' }, w: 900, h: 600, grabX: 40, grabY: 12 };
+  const kinds = (list) => list.map(([ch, v]) => `${ch === 'zd:window:live' ? '' : ch + ' '}${v.kind}`);
+  test('carry: enter when the cursor reaches the other display, follow while it moves there, land and close here only once it is there', async () => {
+    const { L, got, wc2, move, tick } = setup();
+    const r = L.start('main', spec);
+    assert.equal(r.ok, true);
+    const token = r.token;
+    assert.equal(got[2].length, 0, 'nothing while the cursor is still on its own display');
+    move({ x: 1930, y: 200 });
+    tick();
+    assert.deepEqual(got[2][0], ['zd:window:live', { kind: 'enter', appId: 'zdocs', windowKey: 'zdocs:abc', title: 'Doc', params: { file: 'f1' }, w: 900, h: 600, grabX: 40, grabY: 12, x: 10, y: 200, token, profile: 'p1' }]);
+    tick();
+    assert.equal(got[2].length, 1, 'no follow when the cursor did not move');
+    move({ x: 1990, y: 210 });
+    tick();
+    assert.deepEqual(got[2][1][1], { kind: 'follow', token, x: 70, y: 210 });
+    let done = null;
+    const p = L.drop('main', { token, drop: true }).then((v) => (done = v));
+    assert.deepEqual(got[2][2][1], { kind: 'land', token, x: 70, y: 210 });
+    assert.equal(L.owns(token), true);
+    await Promise.resolve();
+    assert.equal(done, null, 'let go is not arrived');
+    assert.deepEqual(L.arrived('main', { token, ok: true }), { ok: false }, 'only the Z it landed on answers');
+    assert.deepEqual(L.arrived(wc2, { token, ok: true }), { ok: true });
+    assert.deepEqual(await p, { ok: true });
+    assert.deepEqual(L.arrived(wc2, { token, ok: true }), { ok: false }, 'only once');
+    tick();
+    assert.equal(got[2].length, 3, 'the carry stopped');
+  });
+  test('carry: back onto its own display or on to a third display, the Z it left closes what it opened', () => {
+    const { L, got, move, tick } = setup();
+    const { token } = L.start('main', spec);
+    move({ x: 2000, y: 10 });
+    tick();
+    move({ x: 500, y: 10 });
+    tick();
+    assert.deepEqual(kinds(got[2]), ['enter', 'leave']);
+    move({ x: -100, y: 10 });
+    tick();
+    assert.deepEqual(kinds(got[3]), ['enter']);
+    move({ x: 2100, y: 10 });
+    tick();
+    assert.deepEqual(kinds(got[3]), ['enter', 'leave']);
+    assert.deepEqual(kinds(got[2]), ['enter', 'leave', 'enter']);
+    assert.ok(got[2].every(([, v]) => v.token === token));
+  });
+  test('carry: let go on its own display, no answer in time, or a refusal: the window stays here and the other Z closes its copy', async () => {
+    const a = setup();
+    const ta = a.L.start('main', spec).token;
+    a.move({ x: 2000, y: 10 });
+    a.tick();
+    a.move({ x: 300, y: 10 });
+    assert.deepEqual(await a.L.drop('main', { token: ta, drop: true }), { ok: false }, 'let go back home');
+    assert.deepEqual(kinds(a.got[2]), ['enter', 'leave']);
+    const b = setup();
+    const tb = b.L.start('main', spec).token;
+    b.move({ x: 2000, y: 10 });
+    b.tick();
+    const pb = b.L.drop('main', { token: tb, drop: true });
+    b.fireArrive();
+    assert.deepEqual(await pb, { ok: false }, 'no answer in time');
+    assert.deepEqual(kinds(b.got[2]), ['enter', 'land', 'leave']);
+    assert.deepEqual(b.L.arrived(b.wc2, { token: tb, ok: true }), { ok: false }, 'too late');
+    const c = setup();
+    const tc = c.L.start('main', spec).token;
+    c.move({ x: 2000, y: 10 });
+    c.tick();
+    const pc = c.L.drop('main', { token: tc, drop: true });
+    c.L.arrived(c.wc2, { token: tc, ok: false });
+    assert.deepEqual(await pc, { ok: false }, 'refused');
+    const d = setup();
+    const td = d.L.start('main', spec).token;
+    d.move({ x: 2000, y: 10 });
+    d.tick();
+    assert.deepEqual(await d.L.drop('main', { token: td, drop: false }), { ok: false }, 'the drag ended without a let go');
+    assert.deepEqual(kinds(d.got[2]), ['enter', 'leave']);
+    assert.deepEqual(await d.L.drop('main', { token: td, drop: true }), { ok: false }, 'a carry ends once');
+  });
+  test('carry: locked, no profile, a stranger, a bad description or token, too often, or too long: nothing is carried', async () => {
+    assert.equal(setup({ locked: true }).L.start('main', spec).ok, false, 'locked');
+    assert.equal(setup({ profile: null }).L.start('main', spec).ok, false, 'no profile');
+    assert.equal(setup().L.start('stranger', spec).ok, false, 'not a Z on a display');
+    assert.equal(setup().L.start('main', { appId: '../x' }).ok, false, 'bad description');
+    const s = setup();
+    const t1 = s.L.start('main', spec).token;
+    assert.equal(s.L.start('main', spec).ok, false, 'too soon');
+    assert.deepEqual(await s.L.drop('main', { token: 'nope', drop: true }), { ok: false }, 'bad token');
+    assert.deepEqual(await s.L.drop('other', { token: t1, drop: true }), { ok: false }, 'another Z');
+    s.later(LIVE_GAP);
+    const t2 = s.L.start('main', spec).token;
+    assert.notEqual(t1, t2, 'a new start replaces the old carry');
+    assert.deepEqual(await s.L.drop('main', { token: t1, drop: true }), { ok: false });
+    s.move({ x: 2000, y: 10 });
+    s.tick();
+    s.later(LIVE_MAX_MS + 1);
+    s.tick();
+    assert.deepEqual(kinds(s.got[2]), ['enter', 'leave'], 'a carry that never ends stops by itself');
+    const k = setup();
+    const tk = k.L.start('main', spec).token;
+    k.move({ x: 2000, y: 10 });
+    k.tick();
+    k.lock();
+    k.tick();
+    assert.deepEqual(kinds(k.got[2]), ['enter', 'leave'], 'Z locked mid-carry');
+    assert.deepEqual(await k.L.drop('main', { token: tk, drop: true }), { ok: false });
+  });
+  test('carry: main sends the right answers to the right part and checks every request comes from Z', () => {
+    const main = readFileSyncSafe('src/main.js');
+    assert.ok(/ipcMain\.handle\('zd:window:drag', \(e, spec\) => \(fromZ\(e\) && windowLive \?/.test(main));
+    assert.ok(/ipcMain\.handle\('zd:window:drop', \(e, answer\) => \(fromZ\(e\) && windowLive \?/.test(main));
+    assert.ok(/windowLive\.owns\(answer\.token\) \? windowLive\.arrived\(e\.sender, answer\) : windowMove\.arrived\(e\.sender, answer\)/.test(main));
   });
 }
 test('navigation: the top stays on Z, frames inside Z follow their own redirects', () => {
