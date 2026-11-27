@@ -9,7 +9,7 @@ const cfg = require('./config');
 const i18n = require('./i18n');
 const { createPermissions } = require('./permissions');
 const { createUpdates, RELEASES_API } = require('./updates');
-const { createAutostart, autostartFromArgs } = require('./autostart');
+const { createAutostart, autostartFromArgs, AUTOSTART_ARG } = require('./autostart');
 const { createDisplays } = require('./displays');
 const { createSurfaces } = require('./surfaces');
 const { createDesks } = require('./desks');
@@ -46,6 +46,13 @@ let retryTimer = null;
 let prefs = { lang: null, perms: {}, updSkipped: null, mainDisplay: null, span: false };
 const RESET_ARG = '--reset-permissions';
 const UPDATE_ARG = '--check-updates';
+// Leaves span mode from outside Z's page (it may be offline): the taskbar menu on Windows, or `z --one-display`.
+const SPAN_OFF_ARG = '--one-display';
+// Arguments that ask for something once: a restart never repeats them.
+const ONCE_ARGS = new Set([RESET_ARG, UPDATE_ARG, SPAN_OFF_ARG]);
+function restartArgs(argv) {
+  return argv.slice(1).filter((a) => !ONCE_ARGS.has(a) && !a.startsWith(`${AUTOSTART_ARG}=`));
+}
 
 // ---------- small preferences file (language, permission answers, a skipped update notice) ----------
 
@@ -784,6 +791,10 @@ function buildIconMenu() {
         title: s.updCheck,
         description: s.updCheck,
       },
+      // Only while span mode is chosen: the way back that works even when Z's page cannot load.
+      ...(prefs.span === true
+        ? [{ program: process.execPath, arguments: SPAN_OFF_ARG, iconPath: process.execPath, iconIndex: 0, title: s.spanOff, description: s.spanOff }]
+        : []),
     ]);
   } else if (isMac && app.dock) {
     app.dock.setMenu(
@@ -801,6 +812,7 @@ app.on('second-instance', (event, argv) => {
   if (!win) return;
   if (argv.includes(RESET_ARG)) resetPermissions();
   if (argv.includes(UPDATE_ARG)) updates.checkNow();
+  if (argv.includes(SPAN_OFF_ARG) && span) span.set(false);
   const startWithComputer = autostartFromArgs(argv);
   if (startWithComputer !== null) autostart.set(startWithComputer);
   if (win.isMinimized()) win.restore();
@@ -837,6 +849,11 @@ function startExtend() {
 app.whenReady().then(() => {
   app.userAgentFallback = userAgent();
   loadPrefs();
+  // `--one-display` at start: span mode off before any window is made (no restart needed).
+  if (process.argv.includes(SPAN_OFF_ARG) && prefs.span === true) {
+    prefs.span = false;
+    savePrefs();
+  }
   // The file also marks this folder as Z's: the Windows uninstaller deletes the folder only when it finds it.
   if (!fs.existsSync(prefsPath())) savePrefs();
   hardenSession(session.defaultSession);
@@ -853,7 +870,7 @@ app.whenReady().then(() => {
     prefs,
     savePrefs,
     restart: () => {
-      app.relaunch();
+      app.relaunch({ args: restartArgs(process.argv) });
       app.quit();
     },
   });

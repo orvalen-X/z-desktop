@@ -1081,6 +1081,19 @@ test('navigation: the top stays on Z, frames inside Z follow their own redirects
     assert.ok(/if \(!span\.active\(\)\) startExtend\(\);/.test(src));
     assert.ok(/send: \(snap\) => \{\n\s+if \(span && span\.active\(\)\) fitSpan\(\);/.test(src));
     assert.ok(/p && p\.span === true/.test(src), 'only a real true turns it on');
+    // A way out that does not need Z's page (it may be offline), and a restart never repeats one-time arguments.
+    assert.ok(/const SPAN_OFF_ARG = '--one-display';/.test(src));
+    assert.ok(/arguments: SPAN_OFF_ARG/.test(src), 'Windows taskbar menu entry');
+    assert.ok(/if \(argv\.includes\(SPAN_OFF_ARG\) && span\) span\.set\(false\);/.test(src), 'from a second start');
+    assert.ok(/loadPrefs\(\);\n\s+\/\/ `--one-display` at start/.test(src), 'at start, before any window');
+    assert.ok(/app\.relaunch\(\{ args: restartArgs\(process\.argv\) \}\)/.test(src));
+  });
+  test('span: a restart drops the one-time arguments and keeps the rest', () => {
+    const src = readFileSyncSafe('src/main.js');
+    const m = src.match(/const ONCE_ARGS[\s\S]*?\n}\n/);
+    assert.ok(m);
+    const f = new Function('RESET_ARG', 'UPDATE_ARG', 'SPAN_OFF_ARG', 'AUTOSTART_ARG', `${m[0]}; return restartArgs;`)('--reset-permissions', '--check-updates', '--one-display', '--autostart');
+    assert.deepEqual(f(['z.exe', '--reset-permissions', '--check-updates', '--one-display', '--autostart=on', '.', '--x']), ['.', '--x']);
   });
 }
 
