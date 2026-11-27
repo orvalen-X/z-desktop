@@ -1214,7 +1214,26 @@ test('navigation: the top stays on Z, frames inside Z follow their own redirects
     st.enabled = false;
     k.changed();
     assert.match(c.runs[1].code, /exitFullscreen/);
-    assert.match(c.runs[1].code, /=== document\.documentElement/, 'only the hold, never a video or a game');
+    assert.match(c.runs[1].code, /for \(/, 'all the way out, also a video over the hold (Closure-old M2)');
+  });
+  test('win keys: hold, a video over it, the window leaves full screen: the page leaves full screen too', async () => {
+    const { c, st, k } = make();
+    k.changed();
+    c.emit('enter-html-full-screen');
+    await new Promise((r) => setImmediate(r));
+    // a video goes full screen over the hold (Chromium sends no new event), then the window leaves full screen
+    st.wanted = false;
+    k.changed();
+    assert.equal(c.runs.length, 2);
+    assert.match(c.runs[1].code, /exitFullscreen/);
+  });
+  test("win keys: a video's own full screen in a windowed Z is never ended", () => {
+    const { c, st, k } = make();
+    st.wanted = false;
+    c.emit('enter-html-full-screen'); // the video, not the hold
+    k.changed();
+    assert.equal(c.runs.length, 0);
+    assert.equal(k.isOurs(), false);
   });
   test('win keys: only on Windows, only when wanted', () => {
     const mac = make({ platform: 'darwin' });

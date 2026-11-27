@@ -18,8 +18,11 @@
 // A world of its own, so the page's scripts never see these two calls.
 const HOLD_WORLD = 1009;
 const ENTER = 'document.fullscreenElement ? true : document.documentElement.requestFullscreen().then(() => true, () => false)';
-// Only the hold itself is let go: a video or a game in full screen inside Z keeps it.
-const LEAVE = 'document.fullscreenElement === document.documentElement ? document.exitFullscreen().then(() => true, () => false) : false';
+// Letting go of the hold (Z left full screen, or the person switched it off) ends the page's full screen all the way:
+// a video that was in full screen over the hold goes with it, or the page would fall back into the hold in a window
+// (Closure-old M2). A video in full screen in a windowed Z is never touched: only a hold this module made is let go.
+const LEAVE =
+  '(async () => { for (let i = 0; i < 5 && document.fullscreenElement; i++) { try { await document.exitFullscreen(); } catch { break; } } return !document.fullscreenElement; })()';
 
 // A held Esc (2 s) or an app leaving its own full screen can end the hold: it comes back, but never in a loop.
 const RETRY_MS = 400;
@@ -53,6 +56,8 @@ function createWinKeys(deps) {
   const later = deps.setTimeout || setTimeout;
   const cancel = deps.clearTimeout || clearTimeout;
   let held = false; // Chromium says the page is in its full screen
+  let entering = false; // this module asked for it and Chromium has not answered yet
+  let ours = false; // the page's full screen is this module's hold (with anything an app put over it)
   let timer = null;
   let tries = [];
 
@@ -81,8 +86,11 @@ function createWinKeys(deps) {
       tries = tries.filter((x) => t - x < TRIES_WINDOW_MS);
       if (tries.length >= MAX_TRIES) return; // something keeps ending it: wait for the next real change
       tries.push(t);
-      run(ENTER);
-    } else if (!want() && held) {
+      entering = true;
+      run(ENTER).then(() => {
+        entering = false;
+      });
+    } else if (!want() && ours) {
       run(LEAVE);
     }
   }
@@ -96,14 +104,20 @@ function createWinKeys(deps) {
   function attach(c) {
     c.on('enter-html-full-screen', () => {
       held = true;
+      // only a full screen this module asked for is its hold; a video's own full screen in a windowed Z is not
+      if (entering) ours = true;
     });
     c.on('leave-html-full-screen', () => {
       held = false;
+      ours = false;
       soon();
     });
     // A new page of Z (reload, sign-out) starts without the hold.
     c.on('did-start-navigation', (details) => {
-      if (details && details.isMainFrame && !details.isSameDocument) held = false;
+      if (details && details.isMainFrame && !details.isSameDocument) {
+        held = false;
+        ours = false;
+      }
     });
     c.on('did-finish-load', () => {
       tries = [];
@@ -117,7 +131,7 @@ function createWinKeys(deps) {
     sync();
   }
 
-  return { supported, attach, changed, sync, isHeld: () => held };
+  return { supported, attach, changed, sync, isHeld: () => held, isOurs: () => ours };
 }
 
 module.exports = { createWinKeys, isLeaveFullscreen, HOLD_WORLD };
