@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-IEl+/8wLoZVtqU5ivkPED/ESB+xlc3rk6+V+J94I9jo='">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-u2tA+xJ2eaK5nTWNv4oZ7EnSSiTpBFH9aV+wDRGQT9M='">
 <title>Z</title>
 <style>
   /* The window bar shown only when Z leaves full screen (O 26.11, sketch 3): the Z mark with its orange dot,
@@ -16,16 +16,26 @@
          -webkit-app-region: drag; cursor: default; }
   .id { display: flex; align-items: center; gap: 8px; pointer-events: none; }
   svg { width: 16px; height: 16px; display: block; }
+  /* span mode (one Z window over every display): no system frame, so the bar has its own minimize and close */
+  .ctl { position: absolute; top: 0; right: 0; height: 100%; display: none; -webkit-app-region: no-drag; }
+  body.span { -webkit-app-region: no-drag; }
+  body.span .ctl { display: flex; }
+  .ctl a { width: 46px; height: 100%; display: flex; align-items: center; justify-content: center; color: inherit; }
+  .ctl a:hover { background: rgba(127, 127, 127, .18); }
+  .ctl a.x:hover { background: #c42b1c; color: #fff; }
+  .ctl svg { width: 10px; height: 10px; }
 </style>
 </head>
 <body>
   <div class="id"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M14 16h34v6L24 44h24v6H14v-6l24-22H14z" fill="currentColor"/><rect x="50" y="42" width="9" height="9" fill="#ff9f0a"/></svg><span id="name"></span></div>
+  <div class="ctl"><a id="min" href="?do=minimize"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg></a><a id="close" class="x" href="?do=close"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1"/></svg></a></div>
 <script>
 (function () {
   var q = new URLSearchParams(location.search);
   var name = (q.get('name') || '').slice(0, 40);
   document.getElementById('name').textContent = name;
   document.title = name ? 'Z ' + name : 'Z';
+  if (q.get('controls') === '1') document.body.className = 'span';
   document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   document.addEventListener('dragstart', function (e) { e.preventDefault(); });
 })();
