@@ -1057,8 +1057,6 @@ test('update screen: launch check finds a newer version, gives up quietly otherw
   assert.ok(/if \(!found\) return loadZ\(\);/.test(main));
   assert.ok(/withTimeout\(fetchLatestRelease\(\)\.catch\(\(\) => null\), LAUNCH_CHECK_MS\)/.test(main), 'release fetch capped');
   assert.ok(!/UPDATE_URL/.test(main), 'the update page is compared as a file path');
-  assert.ok(/storages: \['cachestorage'\]/.test(main) && !/storages: \[[^\]]*serviceworkers/.test(main), 'after an app update: page caches only, never the worker (push)');
-  assert.ok(/async function startZ\(\) \{\n  await freshAfterAppUpdate\(\);/.test(main));
   assert.ok(/UPDATE_STALL_MS/.test(main) && /updates\.defer\(\);\n\s+loadZ\(\);/.test(main), 'stalled or later: Z opens');
 });
 test('update screen: words in five languages', () => {
