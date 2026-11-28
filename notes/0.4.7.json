@@ -1,0 +1,32 @@
+{
+  "en": [
+    "The update screen sits in the middle of the main display, with the Z logo on the others",
+    "What's new in each update, in your language",
+    "After \"Update and open\", the preparation shows before Z closes to install",
+    "The Windows key belongs to Z when Z covers every display too"
+  ],
+  "he": [
+    "מסך העדכון במרכז המסך הראשי, ולוגו Z בשאר המסכים",
+    "מה חדש בכל עדכון, בשפה של Z",
+    "אחרי \"עדכון ופתיחה\" רואים את ההכנה לפני ש-Z נסגרת להתקנה",
+    "מקש Windows שייך ל-Z גם כש-Z פרוסה על כל המסכים"
+  ],
+  "es": [
+    "La pantalla de actualización aparece en el centro de la pantalla principal, con el logo de Z en las demás",
+    "Las novedades de cada actualización, en tu idioma",
+    "Tras \"Actualizar y abrir\", se ve la preparación antes de que Z se cierre para instalar",
+    "La tecla Windows es de Z también cuando Z ocupa todas las pantallas"
+  ],
+  "ar": [
+    "شاشة التحديث في وسط الشاشة الرئيسية، مع شعار Z على الشاشات الأخرى",
+    "ما الجديد في كل تحديث، بلغتك",
+    "بعد \"تحديث وفتح\" يظهر التحضير قبل أن يُغلق Z للتثبيت",
+    "مفتاح Windows يتبع Z أيضًا عندما يغطي Z كل الشاشات"
+  ],
+  "ru": [
+    "Экран обновления — в центре основного экрана, на остальных — логотип Z",
+    "Что нового в каждом обновлении — на вашем языке",
+    "После «Обновить и открыть» видна подготовка, прежде чем Z закроется для установки",
+    "Клавиша Windows принадлежит Z, даже когда Z занимает все экраны"
+  ]
+}
