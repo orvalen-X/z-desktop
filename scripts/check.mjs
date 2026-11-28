@@ -281,7 +281,7 @@ test('autostart: Windows registers with --autostart, Mac without arguments', () 
 {
   const { readFileSync } = await import('node:fs');
   const { createHash } = await import('node:crypto');
-  for (const f of ['src/offline.html', 'src/titlebar.html', 'src/identify.html']) {
+  for (const f of ['src/offline.html', 'src/titlebar.html', 'src/identify.html', 'src/update.html']) {
     test(`${f}: CSP hash matches its script`, () => {
       const html = readFileSync(f, 'utf8');
       const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
@@ -1003,6 +1003,47 @@ test('navigation: the top stays on Z, frames inside Z follow their own redirects
   const main = readFileSyncSafe('src/main.js');
   assert.ok(/wc\.on\('will-navigate', onNavigate\)/.test(main) && /wc\.on\('will-redirect', onNavigate\)/.test(main));
   assert.ok(/createNavigationGuard\(/.test(main));
+});
+
+// ---------- the update screen at start (O 28.11) ----------
+test('update screen: only its own page and two words act; everything about it is stopped', () => {
+  const { createNavigationGuard, updateAction } = require('../src/navGuard.js');
+  const U = 'file:///z/update.html';
+  assert.equal(updateAction(U + '?do=update', U), 'update');
+  assert.equal(updateAction(U + '?do=later', U), 'later');
+  assert.equal(updateAction(U + '?do=rm', U), '');
+  assert.equal(updateAction('file:///z/other.html?do=update', U), null);
+  assert.equal(updateAction('https://orvalen.me/?do=update', U), null);
+  const acts = [], opened = [];
+  const guard = createNavigationGuard({ cfg, offlineUrl: 'file:///z/offline.html', openOutside: (u) => opened.push(u), explainGoogle() {}, updateUrl: U, onUpdateAction: (w) => acts.push(w) });
+  const ev = () => ({ isMainFrame: true, stopped: false, preventDefault() { this.stopped = true; } });
+  for (const u of [U + '?do=update', U + '?do=later', U + '?do=x', U]) { const e = ev(); guard(e, u); assert.ok(e.stopped, u); }
+  assert.deepEqual(acts, ['update', 'later']);
+  assert.deepEqual(opened, []);
+});
+test('update screen: release notes are short plain lines', () => {
+  const { releaseNotes } = require('../src/updates.js');
+  assert.deepEqual(releaseNotes('## Title\n- **Bold** item\n* [link](https://x) two\n1. three `code`\nplain text\n'), ['Bold item', 'link two', 'three code']);
+  assert.deepEqual(releaseNotes(null), []);
+  assert.deepEqual(releaseNotes('- a‮b‏\u0007'), ['ab']);
+  assert.equal(releaseNotes(Array.from({ length: 12 }, (_, i) => `- n${i}`).join('\n')).length, 8);
+  assert.equal(releaseNotes('- ' + 'x'.repeat(300))[0].length, 140);
+});
+test('update screen: launch check finds a newer version, gives up quietly otherwise', async () => {
+  const { createUpdates } = require('../src/updates.js');
+  const base = { version: '0.4.3', platform: 'win32', env: {}, fetchLatest: async () => null, openExternal() {}, ask: async () => 1, prefs: {}, savePrefs() {}, strings: () => ({}), log() {} };
+  const off = createUpdates({ ...base, app: { isPackaged: false } });
+  assert.equal(await off.launchCheck(50), null);
+  const main = readFileSyncSafe('src/main.js');
+  assert.ok(/startZ\(\);\n\}/.test(main), 'createWindow starts with the check');
+  assert.ok(/updates\.mode !== 'install' \|\| !net\.isOnline\(\)/.test(main), 'no network or no install mode: Z as before');
+  assert.ok(/if \(!found\) return loadZ\(\);/.test(main));
+  assert.ok(/UPDATE_STALL_MS/.test(main) && /updates\.defer\(\);\n\s+loadZ\(\);/.test(main), 'stalled or later: Z opens');
+});
+test('update screen: words in five languages', () => {
+  const { STRINGS } = require('../src/i18n.js');
+  for (const l of Object.keys(STRINGS)) for (const k of ['ulTitle', 'ulLead', 'ulNotes', 'ulUpdate', 'ulLater', 'ulKeep', 'ulPrep', 'ulPrepSub', 'ulNoOff']) assert.ok(STRINGS[l][k], `${l}.${k}`);
+  for (const l of Object.keys(STRINGS)) assert.ok(STRINGS[l].ulLead.includes('{name}') && STRINGS[l].ulPrepSub.includes('{name}'), l);
 });
 
 // ---------- one Z across all displays (span mode, api 8) ----------
