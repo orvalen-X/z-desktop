@@ -1336,7 +1336,15 @@ test('update screen: words in five languages', () => {
   test('win keys: wired in main (Z window only, a quiet keyboard lock, Windows lock tells Z)', () => {
     const src = readFileSyncSafe('src/main.js');
     assert.ok(/winKeys\.attach\(zView\.webContents\);/.test(src));
-    assert.ok(/!\(span && span\.active\(\)\) &&\n\s+win\.isFullScreen\(\)/.test(src), 'not in span mode (layer 2)');
+    assert.ok(/!\(span && span\.active\(\)\) &&\n\s+windowFull\(\)/.test(src), 'not in span mode (layer 2)');
+  });
+  test('win keys: on Windows full screen comes from the window events, not isFullScreen() inside them (O 28.11)', () => {
+    const src = readFileSyncSafe('src/main.js');
+    assert.ok(/windowFull = \(\) => \(process\.platform === 'win32' \? winFull : win\.isFullScreen\(\)\)/.test(src));
+    assert.ok(/win\.on\('enter-full-screen', \(\) => \{\n\s+winFull = true;/.test(src), 'set first, before anything reads it');
+    assert.ok(/win\.on\('leave-full-screen', \(\) => \{\n\s+winFull = false;/.test(src), 'cleared first');
+    assert.ok(/winFull = !spanning;/.test(src), 'it opens in full screen');
+    assert.ok(!/wanted: \(\) =>[\s\S]{0,200}win\.isFullScreen\(\)/.test(src), 'the hold never asks the window inside its event');
     assert.ok(/cfg\.isAppUrl\(zView\.webContents\.getURL\(\)\)/.test(src), 'never the offline page');
     assert.ok(/powerMonitor\.on\('lock-screen'/.test(src));
     assert.ok(/p && p\.winKeys === false/.test(src), 'only a real false turns it off');
