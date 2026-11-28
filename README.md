@@ -46,7 +46,7 @@ If Windows says the app was blocked and offers no **Run anyway**, Smart App Cont
 - Out of full screen (and on macOS and Linux), **Alt+Tab** / **Cmd+Tab** move between apps as usual.
 - Links to other websites open in your normal browser.
 - Each installer has a SHA256 checksum next to it, so you can check the download.
-- **Updates:** on Windows and with the AppImage, new versions download in the background, and Z asks whether to restart now to install them. Nothing installs until you click "Restart now"; with "Later", Z asks again the next time it starts. On macOS and with the DEB, Z tells you when a new version is out and opens the download. Updates come only from this repository's Releases page. Right-click the Z icon (or the Z menu on macOS) → **Check for updates** to check right away.
+- **Updates:** on Windows and with the AppImage, Z first checks for a newer version each time it starts (a few seconds at most; no network or no answer and Z simply opens). When one is ready, a Z screen shows it before Z loads, with what's new from the release: **Update and open** installs it quietly and Z opens again by itself, **Open without updating** opens Z and asks again next start. During work, new versions download in the background, and Z asks whether to restart now to install them. Nothing installs until you click "Restart now"; with "Later", Z asks again the next time it starts. On macOS and with the DEB, Z tells you when a new version is out and opens the download. Updates come only from this repository's Releases page. Right-click the Z icon (or the Z menu on macOS) → **Check for updates** to check right away.
 - Sign in with email and password. Google sign-in arrives in the next version.
 
 ## Release names

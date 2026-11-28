@@ -1,0 +1,206 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-zOXYzCgrLjkKPB6yDD9lDhZoTCg8SLWbRLXSuKXrADg='; img-src data:">
+<title>Z</title>
+<!--
+  The update screen at start (O 28.11, sketch B, approved): before Z loads, when a newer version is ready.
+  "Update and open" turns the same page into the update screen: the Z fills like Z's boot screen ("tide"), the
+  percent under it, and under that the horizon (O: like the "Horizon" boot screen, in orange) that opens from a point
+  in the centre to both sides, with the step under it. The first 10% move slowly by themselves and follow the
+  download; the install itself continues from 10% (the next layer hands it to Z Setup).
+  All words come from the app (five languages) in the query; release notes are plain lines, shown with textContent.
+  A button asks the app by trying to open this page with ?do=update or ?do=later; the app refuses the navigation and
+  only that exact page and those two words do anything. The app reports the download with zu.progress(0..100).
+-->
+<style>
+  :root { --bg: radial-gradient(90% 70% at 50% 0%, #26272c, #121316 55%, #0a0a0c); --fg: #fff; --st: rgba(240,240,244,.82);
+          --mut: rgba(240,240,244,.58); --line: rgba(255,255,255,.12); --panel: rgba(255,255,255,.05); --empty: rgba(255,255,255,.06);
+          --edge: rgba(255,255,255,.24); --pri: #2f7fe0; --glow: rgba(255,120,11,.13); color-scheme: dark; }
+  :root.light { --bg: radial-gradient(90% 70% at 50% 0%, #fff, #f2f2f4 55%, #e7e7ea); --fg: #09090b; --st: rgba(9,9,11,.75);
+          --mut: rgba(9,9,11,.6); --line: rgba(9,9,11,.12); --panel: rgba(255,255,255,.7); --empty: rgba(9,9,11,.06);
+          --edge: rgba(9,9,11,.22); --pri: #007aff; --glow: rgba(255,120,11,.10); color-scheme: light; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { background: var(--bg); color: var(--fg); font-family: Inter, "Segoe UI Variable Text", "Segoe UI", "Noto Sans Hebrew", "Noto Sans Arabic", system-ui, sans-serif;
+         -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; cursor: default; }
+  .brand { position: fixed; top: 22px; inset-inline-end: 26px; direction: ltr; font-size: 10.5px; font-weight: 500; letter-spacing: .22em; color: var(--mut); }
+  .glow { position: fixed; left: 50%; top: 26vh; width: 420px; height: 420px; margin: -210px 0 0 -210px; border-radius: 50%;
+          background: radial-gradient(closest-side, var(--glow), transparent 70%); animation: glow 4.8s ease-in-out infinite; }
+  @keyframes glow { 0%,100% { opacity: .75 } 50% { opacity: 1 } }
+  .stage { position: fixed; inset: 0; transition: opacity .45s cubic-bezier(.2,.7,.2,1); }
+  .hide { opacity: 0; pointer-events: none; }
+
+  /* the offer */
+  #offer { display: flex; flex-direction: column; align-items: center; padding-top: 13vh; box-sizing: border-box; }
+  #offer > svg { width: 132px; height: 132px; }
+  h1 { margin: 20px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -.01em; text-align: center; }
+  .lead { margin: 8px 0 0; font-size: 13px; letter-spacing: .02em; color: var(--st); text-align: center; }
+  .panel { margin-top: 22px; width: 400px; max-width: calc(100vw - 32px); border-radius: 12px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
+  .dis { width: 100%; height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border: 0; background: transparent;
+         color: var(--fg); font-size: 12.5px; font-weight: 500; font-family: inherit; cursor: pointer; text-align: start; }
+  .dis:hover { background: rgba(127,127,127,.12); }
+  .dis span { flex: 1; }
+  .dis .v { flex: none; direction: ltr; font-size: 12px; color: var(--mut); font-variant-numeric: tabular-nums; }
+  .chev { width: 14px; height: 14px; flex: none; transition: transform .16s cubic-bezier(.2,.7,.2,1); }
+  [dir="ltr"] .chev { transform: scaleX(-1); }
+  .open .chev { transform: rotate(-90deg); }
+  [dir="ltr"] .open .chev { transform: rotate(-90deg); }
+  ul { margin: 0; padding: 10px 14px 12px; list-style: none; display: none; flex-direction: column; gap: 7px; border-top: 1px solid var(--line);
+       font-size: 12.5px; line-height: 1.45; max-height: 30vh; overflow: auto; }
+  .open ul { display: flex; }
+  li { display: flex; gap: 8px; align-items: baseline; }
+  li::before { content: ""; width: 4px; height: 4px; flex: none; border-radius: 50%; background: #ff780b; transform: translateY(-3px); }
+  .acts { margin-top: 18px; width: 400px; max-width: calc(100vw - 32px); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  button.b { height: 36px; border-radius: 9px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; transition: filter .1s ease, background-color .1s ease; }
+  .pri { border: 1px solid transparent; background: var(--pri); color: #fff; }
+  .pri:hover { filter: brightness(1.08); } .pri:active { filter: brightness(.92); }
+  .sec { border: 1px solid var(--line); background: transparent; color: var(--fg); font-weight: 500 !important; }
+  .sec:hover { background: rgba(127,127,127,.12); }
+  button:focus-visible { outline: 2px solid var(--pri); outline-offset: 2px; }
+  .keep { margin: 12px 0 0; font-size: 12px; color: var(--mut); text-align: center; }
+
+  /* the update */
+  #flow > svg { position: absolute; left: 50%; top: 25vh; width: 176px; height: 176px; margin-left: -88px; }
+  .pct { position: absolute; left: 0; right: 0; top: calc(25vh + 196px); text-align: center; direction: ltr; font-size: 40px; font-weight: 200;
+         letter-spacing: .02em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .hz { position: absolute; left: 0; right: 0; top: calc(25vh + 270px); height: 1px; background: linear-gradient(90deg, transparent, var(--line) 20%, var(--line) 80%, transparent); }
+  .hzfill { position: absolute; left: 50%; top: -1px; width: 760px; max-width: 80vw; height: 3px; border-radius: 2px; transform: translateX(-50%) scaleX(.01);
+            background: linear-gradient(90deg, transparent, rgba(255,154,61,.9) 12%, #ffd2a6 50%, rgba(255,154,61,.9) 88%, transparent);
+            box-shadow: 0 0 10px rgba(255,120,11,.7), 0 0 34px rgba(255,120,11,.35); transition: transform .3s ease-out; }
+  .hzdot { position: absolute; left: 50%; top: -3px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: #ff9a3d;
+           box-shadow: 0 0 10px rgba(255,120,11,.9); transition: opacity .4s ease; }
+  .step { position: absolute; left: 0; right: 0; top: calc(25vh + 288px); text-align: center; font-size: 13px; letter-spacing: .04em; color: var(--st); }
+  .sub { position: absolute; left: 0; right: 0; top: calc(25vh + 312px); text-align: center; font-size: 12px; color: var(--mut); }
+  .nooff { position: absolute; left: 0; right: 0; bottom: 30px; display: flex; justify-content: center; align-items: center; gap: 7px; font-size: 12px; color: var(--mut); }
+  .nooff svg { width: 14px; height: 14px; }
+  @media (prefers-reduced-motion: reduce) { .glow { animation: none; } .hzfill { transition: none; } }
+</style>
+</head>
+<body>
+<div class="glow" aria-hidden="true"></div>
+<div class="brand" aria-hidden="true">Z BY ORVALEN</div>
+
+<main id="offer" class="stage">
+  <svg viewBox="0 0 100 100" aria-hidden="true">
+    <defs><clipPath id="zc"><polygon points="14,14 86,14 86,27 37,73 86,73 86,86 14,86 14,73 63,27 14,27"/></clipPath>
+      <linearGradient id="zg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb36b"/><stop offset=".3" stop-color="#ff780b"/><stop offset=".75" stop-color="#c94b00"/></linearGradient></defs>
+    <g clip-path="url(#zc)"><rect width="100" height="100" fill="var(--empty)"/><g id="w0" transform="translate(0 80.5)"><path d="M0 3Q12.5 0 25 3T50 3T75 3T100 3T125 3T150 3T175 3T200 3V40H0Z" fill="url(#zg)"/></g></g>
+    <polygon points="14,14 86,14 86,27 37,73 86,73 86,86 14,86 14,73 63,27 14,27" fill="none" stroke="var(--edge)" stroke-width=".8" stroke-linejoin="round"/>
+  </svg>
+  <h1 id="title"></h1>
+  <p class="lead" id="lead"></p>
+  <div class="panel" id="panel">
+    <button class="dis" id="dis" type="button" aria-expanded="false" aria-controls="notes">
+      <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+      <span id="notesT"></span><bdi class="v" id="vv"></bdi>
+    </button>
+    <ul id="notes"></ul>
+  </div>
+  <div class="acts">
+    <button class="b pri" id="go" type="button"></button>
+    <button class="b sec" id="later" type="button"></button>
+  </div>
+  <p class="keep" id="keep"></p>
+</main>
+
+<div id="flow" class="stage hide" aria-live="polite">
+  <svg viewBox="0 0 100 100" role="img" id="flowZ">
+    <defs><clipPath id="fc"><polygon points="14,14 86,14 86,27 37,73 86,73 86,86 14,86 14,73 63,27 14,27"/></clipPath>
+      <linearGradient id="fg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb36b"/><stop offset=".3" stop-color="#ff780b"/><stop offset=".75" stop-color="#c94b00"/></linearGradient></defs>
+    <g clip-path="url(#fc)"><rect width="100" height="100" fill="var(--empty)"/>
+      <g id="wb" transform="translate(0 84.5)"><path d="M0 3Q12.5 0 25 3T50 3T75 3T100 3T125 3T150 3T175 3T200 3V140H0Z" fill="#ff9a3d" fill-opacity=".45"/></g>
+      <g id="wf" transform="translate(0 84.5)"><path d="M0 3Q12.5 0 25 3T50 3T75 3T100 3T125 3T150 3T175 3T200 3V140H0Z" fill="url(#fg)"/></g></g>
+    <polygon points="14,14 86,14 86,27 37,73 86,73 86,86 14,86 14,73 63,27 14,27" fill="none" stroke="var(--edge)" stroke-width=".7" stroke-linejoin="round"/>
+  </svg>
+  <div class="pct" id="pct">0%</div>
+  <div class="hz" aria-hidden="true"><div class="hzfill" id="hzf"></div><div class="hzdot" id="hzd"></div></div>
+  <div class="step" id="step"></div>
+  <div class="sub" id="sub"></div>
+  <div class="nooff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v8"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg><span id="nooff"></span></div>
+</div>
+
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var $ = function (id) { return document.getElementById(id); };
+  var get = function (k, d) { return q.get(k) || d || ''; };
+  var root = document.documentElement;
+  root.lang = get('lang', 'en');
+  root.dir = get('dir') === 'rtl' ? 'rtl' : 'ltr';
+  if (q.get('dark') === '0') root.classList.add('light');
+  var name = get('name', 'Z');
+  $('title').textContent = get('title', 'A new version of Z is waiting');
+  // the release name stays one left-to-right piece inside a right-to-left line
+  function withName(el, text) {
+    var parts = text.split('{name}');
+    el.textContent = '';
+    parts.forEach(function (part, i) {
+      if (i) { var b = document.createElement('bdi'); b.dir = 'ltr'; b.textContent = name; el.appendChild(b); }
+      el.appendChild(document.createTextNode(part));
+    });
+  }
+  withName($('lead'), get('lead'));
+  $('notesT').textContent = get('notes', "What's new");
+  $('vv').textContent = get('from') + ' → ' + get('to');
+  $('go').textContent = get('update', 'Update and open');
+  $('later').textContent = get('later', 'Open without updating');
+  $('keep').textContent = get('keep');
+  $('nooff').textContent = get('nooff');
+  $('flowZ').setAttribute('aria-label', name);
+  var lines = q.getAll('n').slice(0, 8);
+  if (!lines.length) $('panel').hidden = true;
+  lines.forEach(function (l) { var li = document.createElement('li'); li.textContent = l; $('notes').appendChild(li); });
+  $('dis').addEventListener('click', function () {
+    var open = $('panel').classList.toggle('open');
+    $('dis').setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var t0 = performance.now(), started = 0, dl = 0, shown = 0, phase = 'offer';
+  // the wave moves sideways; the liquid's top goes from the letter's bottom (86) to its top (14)
+  function frame(now) {
+    var e = now - t0, x = reduce ? 0 : -((e / 28) % 50), xb = reduce ? -25 : -50 + ((e / 44) % 50);
+    if (phase === 'offer') $('w0').setAttribute('transform', 'translate(' + x + ' 80.5)');
+    else {
+      // the first 10%: slow and natural by themselves, never still; the real download can only move them forward
+      var ease = 9.6 * (1 - Math.exp(-(now - started) / 1800));
+      var target = Math.min(10, Math.max(ease, dl / 10));
+      shown += (target - shown) * 0.08;
+      var p = Math.round(shown);
+      var level = 86 - 72 * (shown / 100);
+      $('wf').setAttribute('transform', 'translate(' + x + ' ' + (level - 1.5) + ')');
+      $('wb').setAttribute('transform', 'translate(' + xb + ' ' + (level - 3) + ')');
+      $('pct').textContent = p + '%';
+      $('hzf').style.transform = 'translateX(-50%) scaleX(' + Math.max(0.01, shown / 100) + ')';
+      $('hzd').style.opacity = shown < 2 ? '1' : '0';
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  window.zu = {
+    progress: function (n) { n = Number(n); if (n >= 0 && n <= 100) dl = n; }
+  };
+
+  function ask(what) { location.href = location.pathname + '?do=' + what; }
+  $('go').addEventListener('click', function () {
+    if (phase !== 'offer') return;
+    phase = 'flow';
+    started = performance.now();
+    $('step').textContent = get('prep');
+    withName($('sub'), get('prepSub'));
+    $('offer').classList.add('hide');
+    $('flow').classList.remove('hide');
+    ask('update');
+  });
+  $('later').addEventListener('click', function () {
+    if (phase !== 'offer') return;
+    phase = 'gone';
+    ask('later');
+  });
+  $('go').focus();
+})();
+</script>
+</body>
+</html>

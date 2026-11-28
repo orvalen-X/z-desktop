@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const cfg = require('./config');
 const i18n = require('./i18n');
 const { createPermissions } = require('./permissions');
-const { createUpdates, RELEASES_API } = require('./updates');
+const { createUpdates, releaseNotes, withTimeout, LAUNCH_CHECK_MS, RELEASES_API } = require('./updates');
 const { createAutostart, autostartFromArgs, AUTOSTART_ARG } = require('./autostart');
 const { createDisplays } = require('./displays');
 const { createSurfaces } = require('./surfaces');
@@ -18,7 +18,7 @@ const { createWindowMove } = require('./windowMove');
 const { createWindowLive } = require('./windowLive');
 const { createSpan } = require('./span');
 const { randomBytes } = require('node:crypto');
-const { createNavigationGuard } = require('./navGuard');
+const { createNavigationGuard, isPageFile } = require('./navGuard');
 const { createWinKeys, isLeaveFullscreen } = require('./winKeys');
 const pkg = require('../package.json');
 
@@ -34,6 +34,11 @@ const OFFLINE_FILE = path.join(__dirname, 'offline.html');
 const OFFLINE_URL = pathToFileURL(OFFLINE_FILE).href;
 const TITLEBAR_FILE = path.join(__dirname, 'titlebar.html');
 const BOOT_FILE = path.join(__dirname, 'boot.html');
+// The update screen at start (O 28.11, sketch B): shown before Z loads when a newer version is ready.
+const UPDATE_FILE = path.join(__dirname, 'update.html');
+const onUpdatePage = () => !!zView && !zView.webContents.isDestroyed() && isPageFile(zView.webContents.getURL(), UPDATE_FILE);
+// "Update and open" pressed and the download stops moving for this long: Z opens instead (next start offers again).
+const UPDATE_STALL_MS = 90 * 1000;
 // Height of the window bar shown when Z leaves full screen (sketch 3). In full screen it is 0.
 const BAR_HEIGHT = 34;
 // The name people see instead of a version number (O 26.11: "Z · DNA"); the number stays for updates.
@@ -205,7 +210,14 @@ function explainGoogle() {
 
 function guardContents(wc) {
   // Navigation inside the window: the top stays on Z; frames inside Z navigate like in any browser (navGuard.js).
-  const onNavigate = createNavigationGuard({ cfg, offlineUrl: OFFLINE_URL, openOutside, explainGoogle });
+  const onNavigate = createNavigationGuard({
+    cfg,
+    offlineUrl: OFFLINE_URL,
+    openOutside,
+    explainGoogle,
+    updateFile: UPDATE_FILE,
+    onUpdateAction: (what) => (zView && wc === zView.webContents ? onUpdateScreen(what) : undefined),
+  });
   wc.on('will-navigate', onNavigate);
   wc.on('will-redirect', onNavigate);
 
@@ -311,6 +323,85 @@ const updates = createUpdates({
   strings: t,
   log: (...a) => console.warn('[z-desktop]', ...a),
 });
+
+// ---------- the update screen at start (O 28.11) ----------
+
+// The new release's title as typed on GitHub ("Z · DNA 0.4.4"), when it is plain and its number is this version's.
+function releaseTitle(raw, v) {
+  if (typeof raw !== 'string') return `Z ${v}`;
+  const n = raw.normalize('NFC').replace(/[^\p{L}0-9 ·\-.,:()'_]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 40).trim();
+  const nums = n.match(/\d+\.\d+\.\d+/g) || [];
+  if (!n || nums.some((x) => x !== v) || n === v || n === `v${v}`) return `Z ${v}`;
+  return nums.length ? n : `${n} ${v}`;
+}
+
+let updateStall = null;
+
+// At start: a short check first. A newer version → the update screen; anything else → Z, as before.
+async function startZ() {
+  if (updates.mode !== 'install' || !net.isOnline()) {
+    if (net.isOnline()) loadZ();
+    else showOffline();
+    return;
+  }
+  // The Z logo of the boot screen while the check runs (a few hundred milliseconds, at most a few seconds).
+  zView.webContents.loadFile(BOOT_FILE);
+  // Both answers within LAUNCH_CHECK_MS: a slow or half-open network never holds Z's start (no title/notes then).
+  const [found, rel] = await Promise.all([updates.launchCheck(), withTimeout(fetchLatestRelease().catch(() => null), LAUNCH_CHECK_MS)]);
+  if (!zView || zView.webContents.isDestroyed()) return;
+  if (!found) return loadZ();
+  // The screen is the offer now: no system box about the same update on top of it (the download goes on).
+  updates.defer();
+  const v = found.version;
+  const same = rel && typeof rel.tag_name === 'string' && rel.tag_name.replace(/^v/, '') === v;
+  const s = t();
+  zView.webContents.loadFile(UPDATE_FILE, {
+    query: {
+      lang: lang(),
+      dir: s.dir,
+      dark: nativeTheme.shouldUseDarkColors ? '1' : '0',
+      name: releaseTitle(same ? rel.name : null, v),
+      from: app.getVersion(),
+      to: v,
+      title: s.ulTitle,
+      lead: s.ulLead,
+      notes: s.ulNotes,
+      update: s.ulUpdate,
+      later: s.ulLater,
+      keep: s.ulKeep,
+      prep: s.ulPrep,
+      prepSub: s.ulPrepSub,
+      nooff: s.ulNoOff,
+      // URLSearchParams turns an array into repeated keys: n=…&n=…
+      n: same ? releaseNotes(rel.body) : [],
+    },
+  });
+}
+
+// A button on the update screen: "update" (install now, Z restarts by itself) or "later" (Z opens; asked again next start).
+function onUpdateScreen(what) {
+  if (!onUpdatePage()) return;
+  if (what === 'later') {
+    updates.defer();
+    loadZ();
+    return;
+  }
+  if (what !== 'update') return;
+  const giveUp = () => {
+    clearTimeout(updateStall);
+    updates.defer();
+    loadZ();
+  };
+  const report = (pct) => {
+    clearTimeout(updateStall);
+    updateStall = setTimeout(giveUp, UPDATE_STALL_MS);
+    if (onUpdatePage()) {
+      zView.webContents.executeJavaScript(`window.zu && window.zu.progress(${Number(pct) || 0})`, true).catch(() => {});
+    }
+  };
+  updateStall = setTimeout(giveUp, UPDATE_STALL_MS);
+  updates.installNow({ progress: report, fail: giveUp });
+}
 
 // ---------- offline screen ----------
 
@@ -850,8 +941,7 @@ function createWindow() {
     clearTimeout(retryTimer);
   });
 
-  if (net.isOnline()) loadZ();
-  else showOffline();
+  startZ();
 }
 
 // ---------- menu ----------
