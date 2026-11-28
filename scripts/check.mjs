@@ -305,13 +305,22 @@ test('span: Z learns where its page really starts from the window and its view, 
   assert.ok(src.includes('const o = { x: Math.round(c.x + v.x), y: Math.round(c.y + v.y) };'));
   assert.ok(/placeBootViews\(box \? span\.bootRects\(\) : \[\]\);\n    sendSpanOrigin\(\);/.test(src), 'sent on every span layout (boot box, then every display)');
   assert.ok(src.includes("ipcMain.handle('zd:span:origin', (e) => (fromMainZ(e) && span && span.active() ? viewOrigin() : null));"), "Z's own window only, span mode only");
-  assert.ok(src.includes("if (spanning) win.on('move', layout);"));
+  assert.ok(src.includes("  if (spanning) {\n    win.on('move', layout);"));
   // The origin is in DIP; Z reads it as page px, which agree only while Z's page zoom stays 1 (Closure-old C1 on z#612).
   // Nothing in the app changes a page's zoom: no zoom calls, no zoom menu roles, no zoom-changed handler.
   for (const f of require('node:fs').readdirSync('src').filter((n) => n.endsWith('.js'))) {
     const code = readFileSyncSafe(`src/${f}`);
     assert.ok(!/setZoomFactor|setZoomLevel|zoom-changed|role: '(zoomIn|zoomOut|resetZoom)'/.test(code), `${f}: no page zoom`);
   }
+});
+test('span: the page keeps Z\'s own size through minimize, restore and leaving full screen (O 28.11: a grey Z)', () => {
+  const src = readFileSyncSafe('src/main.js');
+  // the size comes from the bounds Z gives the window, never from what Windows reports minimized or mid-move
+  assert.ok(src.includes('  if (span && span.active() && win.isMinimized()) return;\n  const own = span && span.active() ? span.bounds() : null;\n  const { width, height } = own || win.getContentBounds();'));
+  assert.ok(src.includes('function sendSpanOrigin() {\n  if (win.isMinimized()) return;'), 'no origin from a minimized window');
+  assert.ok(src.includes("    win.on('restore', fitSpan);"), 'back from the taskbar: placed again');
+  // leaving full screen keeps Z in front (Windows dropped it behind the other windows)
+  assert.ok(/winKeys\.changed\(\);\n[^\n]*\n[^\n]*\n      if \(!on && win\.isFocused\(\)\) win\.moveTop\(\);/.test(src));
 });
 test('main checks every Z request comes from Z itself', () => {
   const src = readFileSyncSafe('src/main.js');
