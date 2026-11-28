@@ -27,7 +27,8 @@ jobs:
             Start-Sleep 7;  powershell -NoProfile -File diag\screen.ps1 -Tag "k$keys start"
             Start-Sleep 5;  powershell -NoProfile -File diag\screen.ps1 -Tag "k$keys windowed"
             Start-Sleep 7;  powershell -NoProfile -File diag\screen.ps1 -Tag "k$keys full-again"
-            Start-Sleep 6
+            Start-Sleep 3;  powershell -NoProfile -File diag\screen.ps1 -Tag "k$keys full-again+3"
+            Start-Sleep 4
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; Get-Process electron -ErrorAction SilentlyContinue | Stop-Process -Force
             Get-Content "out-$keys.txt" | Select-String "\[diag\]"
           }

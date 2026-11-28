@@ -15,7 +15,7 @@ app.whenReady().then(() => {
   session.defaultSession.protocol.handle('https', (req) => new URL(req.url).hostname === 'orvalen.me' ? new Response(page, { headers: { 'content-type': 'text/html' } }) : net.fetch(req, { bypassCustomProtocolHandlers: true }));
   const z = () => webContents.getAllWebContents().find((w) => w.getURL().startsWith('https://orvalen.me'));
   const dump = async (tag) => {
-    for (const b of BaseWindow.getAllWindows()) log(tag, 'win', JSON.stringify(b.getBounds()), 'fs', b.isFullScreen(), 'views', b.contentView.children.map((v) => JSON.stringify(v.getBounds()) + ' vis=' + (v.getVisible ? v.getVisible() : '?') + (v.webContents ? ' ' + v.webContents.getURL().slice(0, 24) : '')).join(' ; '));
+    for (const b of BaseWindow.getAllWindows()) log(tag, 'win', JSON.stringify(b.getBounds()), 'fs', b.isFullScreen(), 'visible', b.isVisible(), 'min', b.isMinimized(), 'top', b.isAlwaysOnTop(), 'focused', b.isFocused(), 'kiosk', b.isKiosk && b.isKiosk(), 'views', b.contentView.children.map((v) => JSON.stringify(v.getBounds()) + ' vis=' + (v.getVisible ? v.getVisible() : '?') + (v.webContents ? ' ' + v.webContents.getURL().slice(0, 24) : '')).join(' ; '));
     const w = z();
     if (w) {
       const t0 = Date.now();
@@ -31,8 +31,11 @@ app.whenReady().then(() => {
   setTimeout(() => dump('windowed'), 11000);
   setTimeout(() => { log('F11 in'); press('F11'); }, 16000);
   setTimeout(() => dump('full-again'), 18000);
-  setTimeout(() => app.quit(), 23000);
+  setTimeout(() => dump('full-again+3'), 21000);
+  setTimeout(() => app.quit(), 25000);
 });
+app.on('browser-window-created', () => {});
+setTimeout(() => { for (const b of BaseWindow.getAllWindows()) for (const n of ['show', 'hide', 'minimize', 'restore', 'blur', 'focus', 'enter-full-screen', 'leave-full-screen', 'resize', 'move', 'always-on-top-changed']) b.on(n, () => log('WIN', n, JSON.stringify(b.getBounds()))); }, 5000);
 app.on('web-contents-created', (_e, wc) => {
   wc.on('console-message', (ev) => log('PAGE', ev.message));
   for (const n of ['enter-html-full-screen', 'leave-html-full-screen', 'render-process-gone', 'unresponsive', 'responsive']) wc.on(n, () => log('EV', wc.id, n));
