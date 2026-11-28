@@ -1087,6 +1087,45 @@ test('update screen: words in five languages', () => {
   for (const l of Object.keys(STRINGS)) assert.ok(STRINGS[l].ulLead.includes('{name}') && STRINGS[l].ulPrepSub.includes('{name}'), l);
 });
 
+test('update screen: notes in the person\'s language from the release\'s z-notes block, the plain list otherwise', () => {
+  const { localNotes } = require('../src/updates.js');
+  const block = (o) => 'Z for desktop\n\n- English line\n\n```z-notes\n' + JSON.stringify(o) + '\n```\n';
+  assert.deepEqual(localNotes(block({ en: ['One'], he: ['אחת', 'שתיים'] }), 'he'), ['אחת', 'שתיים']);
+  assert.deepEqual(localNotes(block({ en: ['One'], he: ['אחת'] }), 'ru'), ['One']);
+  assert.deepEqual(localNotes(block({ en: ['a‮b', 7, '', '**x**'] }), 'en'), ['ab', 'x']);
+  assert.deepEqual(localNotes('- plain\n```z-notes\n{broken\n```', 'he'), ['plain']);
+  assert.deepEqual(localNotes('- plain', 'he'), ['plain']);
+  assert.equal(localNotes(block({ en: Array.from({ length: 12 }, (_, i) => `n${i}`) }), 'en').length, 8);
+  assert.deepEqual(localNotes(null, 'he'), []);
+});
+test('update screen: notes/<version>.json exists for this version, five languages, 1–8 short lines each', () => {
+  const fs = require('node:fs');
+  const { STRINGS } = require('../src/i18n.js');
+  const v = require('../package.json').version;
+  const files = fs.readdirSync('notes').filter((f) => f.endsWith('.json'));
+  assert.ok(files.includes(`${v}.json`), `notes/${v}.json is missing: write what is new in ${v} (five languages) with the version bump`);
+  for (const f of files) {
+    assert.match(f, /^\d+\.\d+\.\d+\.json$/, f);
+    const n = JSON.parse(fs.readFileSync(`notes/${f}`, 'utf8'));
+    for (const l of Object.keys(STRINGS)) {
+      assert.ok(Array.isArray(n[l]) && n[l].length >= 1 && n[l].length <= 8, `${f} ${l}: 1–8 lines`);
+      for (const line of n[l]) assert.ok(typeof line === 'string' && line.trim() && line.length <= 140 && !/[\r\n`]/.test(line), `${f} ${l}: ${line}`);
+    }
+  }
+});
+test('update screen: a ready update installs after the hand-off pause, once, so the preparation shows first', () => {
+  const src = readFileSyncSafe('src/updates.js');
+  assert.ok(/const HANDOFF_MS = 1500;/.test(src));
+  assert.ok(/setTimeout\(\(\) => updater\.quitAndInstall\(true, true\), HANDOFF_MS\);/.test(src), 'press before the download ends');
+  assert.ok(/if \(installing\) return true;\n\s+installing = true;/.test(src) && /setTimeout\(\(\) => u\.quitAndInstall\(true, true\), HANDOFF_MS\);/.test(src), 'press after it');
+});
+test('update screen: span mode keeps the start logo and the update screen on the main display, with no time limit', () => {
+  const main = readFileSyncSafe('src/main.js');
+  assert.ok(/isPageFile\(details\.url, BOOT_FILE\) \|\| isPageFile\(details\.url, UPDATE_FILE\)\) spanBootStart\(false\)/.test(main));
+  assert.ok(/bootTimer = limit \? setTimeout\(spanBootEnd, BOOT_MAX_MS\) : null;/.test(main));
+  assert.ok(/n: same \? localNotes\(rel\.body, lang\(\)\) : \[\]/.test(main));
+});
+
 // ---------- one Z across all displays (span mode, api 8) ----------
 {
   const { createSpan, spanSupported, unionOf } = require('../src/span.js');
@@ -1171,9 +1210,9 @@ test('update screen: words in five languages', () => {
   });
   test('span: the boot covers start, reload and sign-out, ends when Z says so or after a minute, and its page is a picture', () => {
     const main = readFileSyncSafe('src/main.js');
-    assert.ok(/if \(details && details\.isMainFrame && !details\.isSameDocument\) \{\n\s+lockMirror\.reset\(\);\n(\s+\/\/[^\n]*\n)+\s+if \(cfg\.isAppUrl\(details\.url\)\) spanBootStart\(\);\n\s+else spanBootEnd\(\);/.test(main), 'every new page of Z; the offline page at once');
+    assert.ok(/if \(details && details\.isMainFrame && !details\.isSameDocument\) \{\n\s+lockMirror\.reset\(\);\n(\s+\/\/[^\n]*\n)+\s+if \(cfg\.isAppUrl\(details\.url\)\) spanBootStart\(\);\n\s+else if \(isPageFile\(details\.url, BOOT_FILE\) \|\| isPageFile\(details\.url, UPDATE_FILE\)\) spanBootStart\(false\);\n\s+else spanBootEnd\(\);/.test(main), 'every new page of Z; the offline page at once');
     assert.ok(/if \(spanning\) spanBootStart\(\);/.test(main), 'the first page');
-    assert.ok(/const BOOT_MAX_MS = 60000;/.test(main) && /bootTimer = setTimeout\(spanBootEnd, BOOT_MAX_MS\);/.test(main), 'never hidden for good');
+    assert.ok(/const BOOT_MAX_MS = 60000;/.test(main) && /bootTimer = limit \? setTimeout\(spanBootEnd, BOOT_MAX_MS\) : null;/.test(main), 'never hidden for good');
     assert.ok(/ipcMain\.handle\('zd:span:ready', \(e\) => \(fromMainZ\(e\) && span && span\.active\(\) \? spanBootEnd\(\) : false\)\);/.test(main));
     assert.ok(/const v = new WebContentsView\(\{ webPreferences: secureWebPreferences\(false\) \}\);/.test(main), 'no preload for the logo views');
     assert.ok(/v\.webContents\.on\('will-navigate', \(event\) => event\.preventDefault\(\)\);/.test(main));
@@ -1359,9 +1398,7 @@ test('update screen: words in five languages', () => {
   test('win keys: wired in main (Z window only, a quiet keyboard lock, Windows lock tells Z)', () => {
     const src = readFileSyncSafe('src/main.js');
     assert.ok(/winKeys\.attach\(zView\.webContents\);/.test(src));
-    assert.ok(/wanted: \(\) =>\n\s+isFullscreen\(\) &&/.test(src), 'full screen, also in span mode (O 28.11)');
-    assert.ok(/span\.setFull\(on\);[\s\S]{0,80}winKeys\.changed\(\);/.test(src), 'span full screen changes tell the hold');
-    assert.ok(/function spanWindowOptions[\s\S]{0,300}fullscreenable: false/.test(src), 'span window never resizes for the hold');
+    assert.ok(/!\(span && span\.active\(\)\) &&\n\s+windowFull\(\)/.test(src), 'not in span mode (layer 2)');
   });
   test('win keys: on Windows full screen comes from the window events, not isFullScreen() inside them (O 28.11)', () => {
     const src = readFileSyncSafe('src/main.js');
@@ -1370,7 +1407,6 @@ test('update screen: words in five languages', () => {
     assert.ok(/win\.on\('leave-full-screen', \(\) => \{\n\s+winFull = false;/.test(src), 'cleared first');
     assert.ok(/winFull = !spanning;/.test(src), 'it opens in full screen');
     assert.ok(!/wanted: \(\) =>[\s\S]{0,200}win\.isFullScreen\(\)/.test(src), 'the hold never asks the window inside its event');
-    assert.ok(/const isFullscreen = \(\) => [^\n]*span\.full\(\) : windowFull\(\)/.test(src));
     assert.ok(/cfg\.isAppUrl\(zView\.webContents\.getURL\(\)\)/.test(src), 'never the offline page');
     assert.ok(/powerMonitor\.on\('lock-screen'/.test(src));
     assert.ok(/p && p\.winKeys === false/.test(src), 'only a real false turns it off');

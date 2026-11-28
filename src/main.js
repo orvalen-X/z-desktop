@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const cfg = require('./config');
 const i18n = require('./i18n');
 const { createPermissions } = require('./permissions');
-const { createUpdates, releaseNotes, withTimeout, LAUNCH_CHECK_MS, RELEASES_API } = require('./updates');
+const { createUpdates, localNotes, withTimeout, LAUNCH_CHECK_MS, RELEASES_API } = require('./updates');
 const { createAutostart, autostartFromArgs, AUTOSTART_ARG } = require('./autostart');
 const { createDisplays } = require('./displays');
 const { createSurfaces } = require('./surfaces');
@@ -373,7 +373,7 @@ async function startZ() {
       prepSub: s.ulPrepSub,
       nooff: s.ulNoOff,
       // URLSearchParams turns an array into repeated keys: n=…&n=…
-      n: same ? releaseNotes(rel.body) : [],
+      n: same ? localNotes(rel.body, lang()) : [],
     },
   });
 }
@@ -470,15 +470,17 @@ let winFull = false;
 const windowFull = () => (process.platform === 'win32' ? winFull : win.isFullScreen());
 const isFullscreen = () => !!win && !win.isDestroyed() && (span && span.active() ? span.full() : windowFull());
 
-// The Windows key belongs to Z while Z's own window is in full screen (winKeys.js, O 27.11), also in span mode (one Z
-// over every display, O 28.11: the person's test was in span mode). There the window is not fullscreenable, so the
-// page's own full screen (the hold) never resizes it: Electron only marks the page full screen, which is all the
-// keyboard lock needs.
+// The Windows key belongs to Z while Z's own window is in full screen (winKeys.js, O 27.11). Not in span mode for now:
+// holding the page's own full screen in the span window (not fullscreenable) left O's two displays grey after F11 in
+// 0.4.6, so span stays out of the hold until that is solved at its root.
 const winKeys = createWinKeys({
   platform: process.platform,
   enabled: () => prefs.winKeys !== false,
   wanted: () =>
-    isFullscreen() &&
+    !!win &&
+    !win.isDestroyed() &&
+    !(span && span.active()) &&
+    windowFull() &&
     !!zView &&
     !zView.webContents.isDestroyed() &&
     cfg.isAppUrl(zView.webContents.getURL()),
@@ -566,7 +568,6 @@ function setFullscreen(on) {
       fitSpan();
       tellZ();
       liftSpan();
-      winKeys.changed();
     }
     return on;
   }
@@ -593,11 +594,11 @@ const BOOT_MAX_MS = 60000;
 let spanBooting = false;
 let bootTimer = null;
 const bootViews = [];
-function spanBootStart() {
+function spanBootStart(limit = true) {
   if (!span || !span.active()) return;
   spanBooting = true;
   clearTimeout(bootTimer);
-  bootTimer = setTimeout(spanBootEnd, BOOT_MAX_MS);
+  bootTimer = limit ? setTimeout(spanBootEnd, BOOT_MAX_MS) : null;
   layout();
 }
 function spanBootEnd() {
@@ -875,7 +876,10 @@ function createWindow() {
       lockMirror.reset();
       // span mode: a new page of Z boots on the main display, the others show the Z logo until it is ready. The
       // app's own offline page never says ready, so it gets every display at once (Closure NIT 1 on #26).
+      // The app's start logo and update screen (O 28.11) stay on the main display too, centred there, with the Z logo
+      // on the others; no time limit, since the update screen waits for the person's choice.
       if (cfg.isAppUrl(details.url)) spanBootStart();
+      else if (isPageFile(details.url, BOOT_FILE) || isPageFile(details.url, UPDATE_FILE)) spanBootStart(false);
       else spanBootEnd();
     }
   });

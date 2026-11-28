@@ -19,6 +19,9 @@ const RELEASES_PAGE = 'https://github.com/orvalen-X/z-desktop/releases/';
 const FIRST_CHECK_MS = 30 * 1000;
 const LAUNCH_CHECK_MS = 4000;
 const EVERY_MS = 6 * 60 * 60 * 1000;
+// From the update screen: the downloaded update installs after this pause, so the screen shows its preparation (the
+// liquid at 10%) before Z closes, instead of Z vanishing at the click (O 28.11, 0.4.6 test).
+const HANDOFF_MS = 1500;
 
 // "1.2.3" or "v1.2.3" -> [1, 2, 3]; anything else (including pre-releases such as 1.2.3-beta) -> null.
 function parseVersion(v) {
@@ -43,24 +46,50 @@ function safeReleaseUrl(url) {
 
 // The release's own text (what O writes on GitHub) as at most 8 short plain lines: only list items ("- ", "* ",
 // "1. "), markdown marks and links dropped, control and direction characters removed. Shown with textContent only.
+function cleanLine(raw) {
+  return String(raw)
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`~#>]/g, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 140)
+    .trim();
+}
+
 function releaseNotes(body) {
   if (typeof body !== 'string') return [];
   const out = [];
   for (const raw of body.split(/\r?\n/)) {
     const m = /^\s*(?:[-*+]|\d{1,2}[.)])\s+(.+)$/.exec(raw);
     if (!m) continue;
-    const line = m[1]
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/[*_`~#>]/g, '')
-      .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 140)
-      .trim();
+    const line = cleanLine(m[1]);
     if (line) out.push(line);
     if (out.length === 8) break;
   }
   return out;
+}
+
+// The release's notes in the person's language: the Release workflow writes notes/<version>.json (five languages) into
+// the release text as one line inside a ```z-notes block. English when that language is missing; the plain list
+// (releaseNotes) when the block is missing or broken (releases made before it).
+function localNotes(body, lang) {
+  if (typeof body !== 'string') return [];
+  const m = /```z-notes[ \t]*\r?\n([^\r\n]{2,20000})\r?\n```/.exec(body);
+  let all = null;
+  try {
+    all = m ? JSON.parse(m[1]) : null;
+  } catch {
+    all = null;
+  }
+  const pick = (k) => (all && typeof all === 'object' && Array.isArray(all[k]) ? all[k] : null);
+  const list = pick(lang) || pick('en');
+  if (!list) return releaseNotes(body);
+  return list
+    .filter((x) => typeof x === 'string')
+    .map(cleanLine)
+    .filter(Boolean)
+    .slice(0, 8);
 }
 
 // p, or null when it has not settled within ms (the timer never keeps anything waiting after).
@@ -88,6 +117,7 @@ function createUpdates({ app, version, platform, env, fetchLatest, openExternal,
   let deferred = false;
   // "Update and open" pressed before the download finished: install the moment it is ready.
   let installWhenReady = false;
+  let installing = false; // the hand-off pause is running: a second press changes nothing
   let onProgress = null;
   let onFail = null;
 
@@ -144,7 +174,7 @@ function createUpdates({ app, version, platform, env, fetchLatest, openExternal,
     if (installWhenReady) {
       readyVersion = v;
       if (onProgress) onProgress(100);
-      updater.quitAndInstall(true, true);
+      setTimeout(() => updater.quitAndInstall(true, true), HANDOFF_MS);
       return;
     }
     if (readyVersion === v && !again) return;
@@ -201,8 +231,11 @@ function createUpdates({ app, version, platform, env, fetchLatest, openExternal,
     onProgress = progress || null;
     onFail = fail || null;
     if (readyVersion) {
+      if (installing) return true;
+      installing = true;
       if (onProgress) onProgress(100);
-      getUpdater().quitAndInstall(true, true);
+      const u = getUpdater();
+      setTimeout(() => u.quitAndInstall(true, true), HANDOFF_MS);
       return true;
     }
     installWhenReady = true;
@@ -249,4 +282,4 @@ function createUpdates({ app, version, platform, env, fetchLatest, openExternal,
   };
 }
 
-module.exports = { createUpdates, isNewer, parseVersion, releaseNotes, withTimeout, safeReleaseUrl, updateMode, LAUNCH_CHECK_MS, RELEASES_API, RELEASES_PAGE };
+module.exports = { createUpdates, isNewer, parseVersion, releaseNotes, localNotes, withTimeout, safeReleaseUrl, updateMode, LAUNCH_CHECK_MS, HANDOFF_MS, RELEASES_API, RELEASES_PAGE };
