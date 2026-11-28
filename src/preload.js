@@ -65,12 +65,14 @@ const osLockListeners = new Set();
 ipcRenderer.on('zd:keys:oslock', () => fanOut(osLockListeners));
 const activityListeners = new Set();
 ipcRenderer.on('zd:lock:activity', () => fanOut(activityListeners));
+const originListeners = new Set();
+ipcRenderer.on('zd:span:origin', (_event, o) => fanOut(originListeners, o));
 
 contextBridge.exposeInMainWorld(
   'zDesktop',
   Object.freeze({
     isDesktopApp: true,
-    api: 9,
+    api: 10,
     platform: process.platform,
     version: arg('z-desktop-version'),
     release: arg('z-desktop-release'),
@@ -85,6 +87,9 @@ contextBridge.exposeInMainWorld(
       set: (on) => ipcRenderer.invoke('zd:span:set', on === true),
       // Z's boot screen is gone: the page may cover every display now (while it loads it covers the main one only)
       ready: () => ipcRenderer.invoke('zd:span:ready'),
+      // api 10: where Z's page starts on the system's desk ({ x, y } in DIP, or null outside span mode), and its changes
+      origin: () => ipcRenderer.invoke('zd:span:origin'),
+      onOrigin: (fn) => subscribe(originListeners, fn),
     }),
     windows: Object.freeze({
       send: (spec) => ipcRenderer.invoke('zd:window:send', spec),

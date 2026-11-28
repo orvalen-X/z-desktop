@@ -295,17 +295,31 @@ test('autostart: Windows registers with --autostart, Mac without arguments', () 
 // ---------- the page API: only these names, and the release name travels with the version ----------
 test('preload exposes only the full-screen, autostart, display and extend calls', () => {
   const src = readFileSyncSafe('src/preload.js');
-  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'", "'zd:window:send'", "'zd:window:arrived'", "'zd:window:receive'", "'zd:window:drag'", "'zd:window:drop'", "'zd:window:live'", "'zd:span:get'", "'zd:span:set'", "'zd:span:ready'", "'zd:keys:get'", "'zd:keys:set'", "'zd:keys:oslock'"].includes(ch), ch);
-  assert.ok(/api: 9,/.test(src), 'api 9');
+  for (const ch of src.match(/'zd:[a-z:]+'/g)) assert.ok(["'zd:fs'", "'zd:fs:get'", "'zd:fs:set'", "'zd:fs:toggle'", "'zd:autostart:get'", "'zd:autostart:set'", "'zd:displays'", "'zd:displays:get'", "'zd:displays:identify'", "'zd:displays:settings'", "'zd:displays:surface'", "'zd:displays:main'", "'zd:desks:set'", "'zd:lock'", "'zd:lock:get'", "'zd:lock:set'", "'zd:lock:request'", "'zd:lock:activity'", "'zd:window:send'", "'zd:window:arrived'", "'zd:window:receive'", "'zd:window:drag'", "'zd:window:drop'", "'zd:window:live'", "'zd:span:get'", "'zd:span:set'", "'zd:span:ready'", "'zd:span:origin'", "'zd:keys:get'", "'zd:keys:set'", "'zd:keys:oslock'"].includes(ch), ch);
+  assert.ok(/api: 10,/.test(src), 'api 10');
   assert.ok(!/require\('(?!electron')/.test(src), 'preload requires only electron');
+});
+test('span: Z learns where its page really starts from the window and its view, not from window.screenX (api 10)', () => {
+  const src = readFileSyncSafe('src/main.js');
+  assert.ok(src.includes('const c = win.getContentBounds();') && src.includes('const v = zView.getBounds();'));
+  assert.ok(src.includes('const o = { x: Math.round(c.x + v.x), y: Math.round(c.y + v.y) };'));
+  assert.ok(/placeBootViews\(box \? span\.bootRects\(\) : \[\]\);\n    sendSpanOrigin\(\);/.test(src), 'sent on every span layout (boot box, then every display)');
+  assert.ok(src.includes("ipcMain.handle('zd:span:origin', (e) => (fromMainZ(e) && span && span.active() ? viewOrigin() : null));"), "Z's own window only, span mode only");
+  assert.ok(src.includes("if (spanning) win.on('move', layout);"));
+  // The origin is in DIP; Z reads it as page px, which agree only while Z's page zoom stays 1 (Closure-old C1 on z#612).
+  // Nothing in the app changes a page's zoom: no zoom calls, no zoom menu roles, no zoom-changed handler.
+  for (const f of require('node:fs').readdirSync('src').filter((n) => n.endsWith('.js'))) {
+    const code = readFileSyncSafe(`src/${f}`);
+    assert.ok(!/setZoomFactor|setZoomLevel|zoom-changed|role: '(zoomIn|zoomOut|resetZoom)'/.test(code), `${f}: no page zoom`);
+  }
 });
 test('main checks every Z request comes from Z itself', () => {
   const src = readFileSyncSafe('src/main.js');
   const handlers = src.match(/ipcMain\.handle\('zd:[a-z:]+', \([^)]*\) =>\s*\(?\s*from(Main)?Z\(e\)/g) || [];
   assert.equal(handlers.length, (src.match(/ipcMain\.handle\(/g) || []).length);
-  assert.equal(handlers.length, 24);
+  assert.equal(handlers.length, 25);
   // What only Z's own window decides: extend on/off, span mode, the one-time window names, the main display, autostart, the lock.
-  for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set', 'zd:lock:set', 'zd:span:set', 'zd:span:ready', 'zd:keys:set']) {
+  for (const ch of ['zd:desks:set', 'zd:displays:surface', 'zd:displays:main', 'zd:autostart:set', 'zd:lock:set', 'zd:span:set', 'zd:span:ready', 'zd:span:origin', 'zd:keys:set']) {
     assert.ok(new RegExp(`ipcMain\\.handle\\('${ch}', \\([^)]*\\) =>\\s*\\(?\\s*fromMainZ\\(e\\)`).test(src), ch);
   }
   // Asking to lock and reporting activity come only from a Z on an extra display, and go only to Z's own window.
