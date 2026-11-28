@@ -461,7 +461,14 @@ function rememberZLanguage() {
 
 // ---------- full screen and the window bar ----------
 
-const isFullscreen = () => !!win && !win.isDestroyed() && (span && span.active() ? span.full() : win.isFullScreen());
+// Z's own window's full screen, as the window's own events tell it. Not win.isFullScreen() inside those events: on
+// Windows Electron sends enter-full-screen and leave-full-screen BEFORE the window changes (NativeWindowViews::
+// SetFullScreen notifies, then calls widget()->SetFullscreen), so it still gives the old answer there. Reading it
+// then never held the page, and the Windows key and Alt+Tab stayed with Windows (O 28.11, 0.4.3).
+// macOS and Linux tell after the change, so there the window itself answers, as before.
+let winFull = false;
+const windowFull = () => (process.platform === 'win32' ? winFull : win.isFullScreen());
+const isFullscreen = () => !!win && !win.isDestroyed() && (span && span.active() ? span.full() : windowFull());
 
 // The Windows key belongs to Z while Z's own window is in full screen (winKeys.js, O 27.11).
 const winKeys = createWinKeys({
@@ -471,7 +478,7 @@ const winKeys = createWinKeys({
     !!win &&
     !win.isDestroyed() &&
     !(span && span.active()) &&
-    win.isFullScreen() &&
+    windowFull() &&
     !!zView &&
     !zView.webContents.isDestroyed() &&
     cfg.isAppUrl(zView.webContents.getURL()),
@@ -805,6 +812,8 @@ function createWindow() {
     titleBarStyle: 'hidden',
     ...(isMac ? { trafficLightPosition: { x: 12, y: 10 } } : { titleBarOverlay: barColors() }),
   });
+  // It opens in full screen (fullscreen: true above, before any listener); its own events tell every change after.
+  winFull = !spanning;
   if (spanning) {
     win.on('focus', liftSpan);
     win.on('blur', liftSpan);
@@ -872,6 +881,7 @@ function createWindow() {
 
   win.on('resize', layout);
   win.on('enter-full-screen', () => {
+    winFull = true;
     layout();
     tellZ();
     if (surfaces) surfaces.followFullScreen(true);
@@ -880,6 +890,7 @@ function createWindow() {
     winKeys.changed();
   });
   win.on('leave-full-screen', () => {
+    winFull = false;
     // On its way to another display (Main display), the move places the window itself.
     if (!win.isMaximized() && !(surfaces && surfaces.moving())) win.maximize();
     layout();

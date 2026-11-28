@@ -126,15 +126,9 @@ function createWinKeys(deps) {
   }
 
   // A real change (full screen, the person's choice, focus back): start counting again.
-  // One turn later, not now: on Windows Electron sends enter-full-screen and leave-full-screen BEFORE the window
-  // changes (NativeWindowViews::SetFullScreen notifies first, then calls widget()->SetFullscreen), so inside the
-  // event win.isFullScreen() still gives the old answer. Reading it then never held the page on Windows: the Windows
-  // key and Alt+Tab stayed with Windows (O 28.11, 0.4.3). Linux and macOS notify after the change; one turn later is
-  // right on all three.
   function changed() {
     tries = [];
-    cancel(timer);
-    timer = later(sync, 0);
+    sync();
   }
 
   return { supported, attach, changed, sync, isHeld: () => held, isOurs: () => ours };

@@ -1261,61 +1261,52 @@ test('update screen: words in five languages', () => {
     return { c, st, k, flush };
   };
   test('win keys: full screen holds the page (own world, with a gesture), leaving lets go', () => {
-    const { c, st, k, flush } = make();
+    const { c, st, k } = make();
     k.changed();
-    flush();
     assert.equal(c.runs.length, 1);
     assert.equal(c.runs[0].world, HOLD_WORLD);
     assert.equal(c.runs[0].gesture, true);
     assert.match(c.runs[0].code, /requestFullscreen/);
     c.emit('enter-html-full-screen');
     k.changed();
-    flush();
     assert.equal(c.runs.length, 1, 'already held: nothing again');
     st.enabled = false;
     k.changed();
-    flush();
     assert.match(c.runs[1].code, /exitFullscreen/);
     assert.match(c.runs[1].code, /for \(/, 'all the way out, also a video over the hold (Closure-old M2)');
   });
   test('win keys: hold, a video over it, the window leaves full screen: the page leaves full screen too', async () => {
-    const { c, st, k, flush } = make();
+    const { c, st, k } = make();
     k.changed();
-    flush();
     c.emit('enter-html-full-screen');
     await new Promise((r) => setImmediate(r));
     // a video goes full screen over the hold (Chromium sends no new event), then the window leaves full screen
     st.wanted = false;
     k.changed();
-    flush();
     assert.equal(c.runs.length, 2);
     assert.match(c.runs[1].code, /exitFullscreen/);
   });
   test("win keys: a video's own full screen in a windowed Z is never ended", () => {
-    const { c, st, k, flush } = make();
+    const { c, st, k } = make();
     st.wanted = false;
     c.emit('enter-html-full-screen'); // the video, not the hold
     k.changed();
-    flush();
     assert.equal(c.runs.length, 0);
     assert.equal(k.isOurs(), false);
   });
   test('win keys: only on Windows, only when wanted', () => {
     const mac = make({ platform: 'darwin' });
     mac.k.changed();
-    mac.flush();
     assert.equal(mac.c.runs.length, 0);
     assert.equal(mac.k.supported, false);
     const out = make();
     out.st.wanted = false;
     out.k.changed();
-    out.flush();
     assert.equal(out.c.runs.length, 0, 'out of full screen: no hold');
   });
   test('win keys: a lost hold comes back, but never in a loop', () => {
     const { c, st, k, flush } = make();
     k.changed();
-    flush();
     for (let i = 0; i < 10; i++) {
       c.emit('enter-html-full-screen');
       c.emit('leave-html-full-screen');
@@ -1324,36 +1315,17 @@ test('update screen: words in five languages', () => {
     assert.equal(c.runs.length, 5, 'at most 5 tries in 10 seconds');
     st.t = 20000;
     k.changed();
-    flush();
     assert.equal(c.runs.length, 6, 'a real change starts again');
   });
   test('win keys: a new page starts without the hold and is held once it loads', () => {
     const { c, k, flush } = make();
     k.changed();
-    flush();
     c.emit('enter-html-full-screen');
     c.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
     assert.equal(k.isHeld(), false);
     c.emit('did-finish-load');
     flush();
     assert.equal(c.runs.length, 2);
-  });
-  test('win keys: Windows tells full screen before it is full screen: the hold reads it one turn later (O 28.11)', () => {
-    const { c, st, k, flush } = make();
-    // Electron on Windows: enter-full-screen comes while isFullScreen() is still false
-    st.wanted = false;
-    k.changed();
-    assert.equal(c.runs.length, 0, 'nothing read inside the event');
-    st.wanted = true; // the window is full screen now
-    flush();
-    assert.equal(c.runs.length, 1, 'held');
-    assert.match(c.runs[0].code, /requestFullscreen/);
-    c.emit('enter-html-full-screen');
-    // leave-full-screen comes while isFullScreen() is still true
-    k.changed();
-    st.wanted = false;
-    flush();
-    assert.match(c.runs[1].code, /exitFullscreen/, 'let go once the window left');
   });
   test('win keys: Ctrl+Alt+Esc is the way out, nothing else', () => {
     const k = (over) => ({ type: 'keyDown', key: 'Escape', control: true, alt: true, meta: false, shift: false, ...over });
@@ -1364,7 +1336,15 @@ test('update screen: words in five languages', () => {
   test('win keys: wired in main (Z window only, a quiet keyboard lock, Windows lock tells Z)', () => {
     const src = readFileSyncSafe('src/main.js');
     assert.ok(/winKeys\.attach\(zView\.webContents\);/.test(src));
-    assert.ok(/!\(span && span\.active\(\)\) &&\n\s+win\.isFullScreen\(\)/.test(src), 'not in span mode (layer 2)');
+    assert.ok(/!\(span && span\.active\(\)\) &&\n\s+windowFull\(\)/.test(src), 'not in span mode (layer 2)');
+  });
+  test('win keys: on Windows full screen comes from the window events, not isFullScreen() inside them (O 28.11)', () => {
+    const src = readFileSyncSafe('src/main.js');
+    assert.ok(/windowFull = \(\) => \(process\.platform === 'win32' \? winFull : win\.isFullScreen\(\)\)/.test(src));
+    assert.ok(/win\.on\('enter-full-screen', \(\) => \{\n\s+winFull = true;/.test(src), 'set first, before anything reads it');
+    assert.ok(/win\.on\('leave-full-screen', \(\) => \{\n\s+winFull = false;/.test(src), 'cleared first');
+    assert.ok(/winFull = !spanning;/.test(src), 'it opens in full screen');
+    assert.ok(!/wanted: \(\) =>[\s\S]{0,200}win\.isFullScreen\(\)/.test(src), 'the hold never asks the window inside its event');
     assert.ok(/cfg\.isAppUrl\(zView\.webContents\.getURL\(\)\)/.test(src), 'never the offline page');
     assert.ok(/powerMonitor\.on\('lock-screen'/.test(src));
     assert.ok(/p && p\.winKeys === false/.test(src), 'only a real false turns it off');
