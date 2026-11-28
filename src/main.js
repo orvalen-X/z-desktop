@@ -470,15 +470,15 @@ let winFull = false;
 const windowFull = () => (process.platform === 'win32' ? winFull : win.isFullScreen());
 const isFullscreen = () => !!win && !win.isDestroyed() && (span && span.active() ? span.full() : windowFull());
 
-// The Windows key belongs to Z while Z's own window is in full screen (winKeys.js, O 27.11).
+// The Windows key belongs to Z while Z's own window is in full screen (winKeys.js, O 27.11), also in span mode (one Z
+// over every display, O 28.11: the person's test was in span mode). There the window is not fullscreenable, so the
+// page's own full screen (the hold) never resizes it: Electron only marks the page full screen, which is all the
+// keyboard lock needs.
 const winKeys = createWinKeys({
   platform: process.platform,
   enabled: () => prefs.winKeys !== false,
   wanted: () =>
-    !!win &&
-    !win.isDestroyed() &&
-    !(span && span.active()) &&
-    windowFull() &&
+    isFullscreen() &&
     !!zView &&
     !zView.webContents.isDestroyed() &&
     cfg.isAppUrl(zView.webContents.getURL()),
@@ -566,6 +566,7 @@ function setFullscreen(on) {
       fitSpan();
       tellZ();
       liftSpan();
+      winKeys.changed();
     }
     return on;
   }
