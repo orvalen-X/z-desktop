@@ -534,7 +534,10 @@ test('main checks every Z request comes from Z itself', () => {
     const s0 = createSurfaces({
       screen: { getAllDisplays: () => list, getDisplayMatching: (b) => list.find((d) => d.bounds.x === b.x) },
       randomBytes: (k) => Buffer.alloc(k, 1), isMac: false, prefs, savePrefs: () => {},
+      later: (f) => turns.push(f),
     });
+    const turns = [];
+    const run = () => turns.splice(0).forEach((f) => f());
     const ev = {};
     const win = {
       b: { x: 0, y: 0, width: 1920, height: 1040 }, fs: true, op: [], isDestroyed: () => false, getBounds: () => win.b,
@@ -547,10 +550,16 @@ test('main checks every Z request comes from Z itself', () => {
     s0.moveMain(win, '2');
     assert.deepEqual(win.op, [0]);
     assert.ok(s0.moving(), 'main skips its own maximize while moving');
+    // Windows sends leave-full-screen before the window leaves full screen: nothing is placed inside the event
     ev['leave-full-screen']();
-    assert.equal(win.b.x, 1920);
+    assert.equal(win.b.x, 0, 'not inside the event: the system still restores the old bounds after it');
+    win.fs = false; // the call that sent the event finishes leaving full screen
+    run();
+    assert.equal(win.b.x, 1920, 'one turn later: on the chosen display');
     assert.ok(win.fs);
     ev['enter-full-screen']();
+    assert.deepEqual(win.op, [0], 'still hidden inside the enter event');
+    run();
     assert.deepEqual(win.op, [0, 1]);
     assert.ok(!s0.moving());
     const src = readFileSyncSafe('src/main.js');
