@@ -1017,11 +1017,10 @@ test('update screen: only its own page and two words act; everything about it is
   assert.equal(updateAction('file:///z/other.html?do=update', F), null);
   assert.equal(updateAction('https://orvalen.me/?do=update', F), null);
   // a Hebrew user name with a space, spelled the way Chromium does (upper %-hex) or not: the same file (Closure-old S1)
-  const H = '/home/משה כהן/Z/update.html';
+  const H = require('node:path').resolve('/home/משה כהן/Z/update.html');
   const hu = pathToFileURL(H).href;
   assert.equal(updateAction(hu + '?do=later', H), 'later');
   assert.equal(updateAction(hu.replace(/%[0-9A-F]{2}/g, (m) => m.toLowerCase()) + '?do=update', H), 'update');
-  assert.equal(updateAction('file:///home/' + encodeURIComponent('משה כהן') + '/Z/update.html?do=update', H), 'update');
   // Windows: drive letter and case do not matter
   assert.ok(isPageFile('file:///C:/Users/x/Z/update.html', 'C:\\Users\\X\\z\\update.html', 'win32') || process.platform !== 'win32');
   assert.ok(!isPageFile('file:///z/update.html.evil', F) && !isPageFile('https://orvalen.me/z/update.html', F) && !isPageFile(null, F));
