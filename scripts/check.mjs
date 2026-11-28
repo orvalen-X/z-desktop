@@ -1038,6 +1038,8 @@ test('update screen: launch check finds a newer version, gives up quietly otherw
   assert.ok(/startZ\(\);\n\}/.test(main), 'createWindow starts with the check');
   assert.ok(/updates\.mode !== 'install' \|\| !net\.isOnline\(\)/.test(main), 'no network or no install mode: Z as before');
   assert.ok(/if \(!found\) return loadZ\(\);/.test(main));
+  assert.ok(/storages: \['cachestorage'\]/.test(main) && !/storages: \[[^\]]*serviceworkers/.test(main), 'after an app update: page caches only, never the worker (push)');
+  assert.ok(/async function startZ\(\) \{\n  await freshAfterAppUpdate\(\);/.test(main));
   assert.ok(/UPDATE_STALL_MS/.test(main) && /updates\.defer\(\);\n\s+loadZ\(\);/.test(main), 'stalled or later: Z opens');
 });
 test('update screen: words in five languages', () => {

@@ -50,7 +50,7 @@ let zView = null;
 let barView = null;
 let offline = false;
 let retryTimer = null;
-let prefs = { lang: null, perms: {}, updSkipped: null, mainDisplay: null, span: false, winKeys: true };
+let prefs = { lang: null, perms: {}, updSkipped: null, mainDisplay: null, span: false, winKeys: true, appVersion: null };
 const RESET_ARG = '--reset-permissions';
 const UPDATE_ARG = '--check-updates';
 // Leaves span mode from outside Z's page (it may be offline): the taskbar menu on Windows, or `z --one-display`.
@@ -76,6 +76,7 @@ function loadPrefs() {
     if (p && p.span === true) prefs.span = true;
     // the Windows key is Z's in full screen unless the person switched it off (O 27.11)
     if (p && p.winKeys === false) prefs.winKeys = false;
+    if (p && typeof p.appVersion === 'string' && p.appVersion.length <= 20) prefs.appVersion = p.appVersion;
   } catch {
     /* first run */
   }
@@ -337,8 +338,26 @@ function releaseTitle(raw, v) {
 
 let updateStall = null;
 
+// After the app itself changed version, Z's saved copy of its page (the service worker's caches) can be older than
+// the newest publish: Z opened old and at once offered "A new version of Z is ready · Refresh" (O 28.11). Once per new
+// app version those caches are emptied, so this start loads Z from the network. Cache storage only: the service
+// worker itself (and web push with it), sign-in, cookies and Z's local data stay.
+async function freshAfterAppUpdate() {
+  const now = app.getVersion();
+  if (prefs.appVersion === now) return;
+  try {
+    await session.defaultSession.clearStorageData({ origin: new URL(cfg.START_URL).origin, storages: ['cachestorage'] });
+  } catch (e) {
+    console.warn('[z-desktop] clearing the page cache failed', e && e.message);
+  }
+  prefs.appVersion = now;
+  savePrefs();
+}
+
 // At start: a short check first. A newer version → the update screen; anything else → Z, as before.
 async function startZ() {
+  await freshAfterAppUpdate();
+  if (!zView || zView.webContents.isDestroyed()) return;
   if (updates.mode !== 'install' || !net.isOnline()) {
     if (net.isOnline()) loadZ();
     else showOffline();
