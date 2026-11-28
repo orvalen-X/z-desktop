@@ -22,17 +22,19 @@
           --mut: rgba(9,9,11,.6); --line: rgba(9,9,11,.12); --panel: rgba(255,255,255,.7); --empty: rgba(9,9,11,.06);
           --edge: rgba(9,9,11,.22); --pri: #007aff; --glow: rgba(255,120,11,.10); color-scheme: light; }
   html, body { margin: 0; height: 100%; overflow: hidden; }
+  /* One fixed top for both stages, so the block sits in the middle of the screen and opening the notes grows it down only. */
+  :root { --t: max(24px, calc(50vh - 190px)); }
   body { background: var(--bg); color: var(--fg); font-family: Inter, "Segoe UI Variable Text", "Segoe UI", "Noto Sans Hebrew", "Noto Sans Arabic", system-ui, sans-serif;
          -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; cursor: default; }
   .brand { position: fixed; top: 22px; inset-inline-end: 26px; direction: ltr; font-size: 10.5px; font-weight: 500; letter-spacing: .22em; color: var(--mut); }
-  .glow { position: fixed; left: 50%; top: 26vh; width: 420px; height: 420px; margin: -210px 0 0 -210px; border-radius: 50%;
+  .glow { position: fixed; left: 50%; top: calc(var(--t) + 76px); width: 420px; height: 420px; margin: -210px 0 0 -210px; border-radius: 50%;
           background: radial-gradient(closest-side, var(--glow), transparent 70%); animation: glow 4.8s ease-in-out infinite; }
   @keyframes glow { 0%,100% { opacity: .75 } 50% { opacity: 1 } }
   .stage { position: fixed; inset: 0; transition: opacity .45s cubic-bezier(.2,.7,.2,1); }
   .hide { opacity: 0; pointer-events: none; }
 
   /* the offer */
-  #offer { display: flex; flex-direction: column; align-items: center; padding-top: 13vh; box-sizing: border-box; }
+  #offer { display: flex; flex-direction: column; align-items: center; padding-top: var(--t); box-sizing: border-box; }
   #offer > svg { width: 132px; height: 132px; }
   h1 { margin: 20px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -.01em; text-align: center; }
   .lead { margin: 8px 0 0; font-size: 13px; letter-spacing: .02em; color: var(--st); text-align: center; }
@@ -61,17 +63,17 @@
   .keep { margin: 12px 0 0; font-size: 12px; color: var(--mut); text-align: center; }
 
   /* the update */
-  #flow > svg { position: absolute; left: 50%; top: 25vh; width: 176px; height: 176px; margin-left: -88px; }
-  .pct { position: absolute; left: 0; right: 0; top: calc(25vh + 196px); text-align: center; direction: ltr; font-size: 40px; font-weight: 200;
+  #flow > svg { position: absolute; left: 50%; top: var(--t); width: 176px; height: 176px; margin-left: -88px; }
+  .pct { position: absolute; left: 0; right: 0; top: calc(var(--t) + 196px); text-align: center; direction: ltr; font-size: 40px; font-weight: 200;
          letter-spacing: .02em; line-height: 1; font-variant-numeric: tabular-nums; }
-  .hz { position: absolute; left: 0; right: 0; top: calc(25vh + 270px); height: 1px; background: linear-gradient(90deg, transparent, var(--line) 20%, var(--line) 80%, transparent); }
+  .hz { position: absolute; left: 0; right: 0; top: calc(var(--t) + 270px); height: 1px; background: linear-gradient(90deg, transparent, var(--line) 20%, var(--line) 80%, transparent); }
   .hzfill { position: absolute; left: 50%; top: -1px; width: 760px; max-width: 80vw; height: 3px; border-radius: 2px; transform: translateX(-50%) scaleX(.01);
             background: linear-gradient(90deg, transparent, rgba(255,154,61,.9) 12%, #ffd2a6 50%, rgba(255,154,61,.9) 88%, transparent);
             box-shadow: 0 0 10px rgba(255,120,11,.7), 0 0 34px rgba(255,120,11,.35); transition: transform .3s ease-out; }
   .hzdot { position: absolute; left: 50%; top: -3px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: #ff9a3d;
            box-shadow: 0 0 10px rgba(255,120,11,.9); transition: opacity .4s ease; }
-  .step { position: absolute; left: 0; right: 0; top: calc(25vh + 288px); text-align: center; font-size: 13px; letter-spacing: .04em; color: var(--st); }
-  .sub { position: absolute; left: 0; right: 0; top: calc(25vh + 312px); text-align: center; font-size: 12px; color: var(--mut); }
+  .step { position: absolute; left: 0; right: 0; top: calc(var(--t) + 288px); text-align: center; font-size: 13px; letter-spacing: .04em; color: var(--st); }
+  .sub { position: absolute; left: 0; right: 0; top: calc(var(--t) + 312px); text-align: center; font-size: 12px; color: var(--mut); }
   .nooff { position: absolute; left: 0; right: 0; bottom: 30px; display: flex; justify-content: center; align-items: center; gap: 7px; font-size: 12px; color: var(--mut); }
   .nooff svg { width: 14px; height: 14px; }
   @media (prefers-reduced-motion: reduce) { .glow { animation: none; } .hzfill { transition: none; } }

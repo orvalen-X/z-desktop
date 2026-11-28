@@ -1,0 +1,32 @@
+{
+  "en": [
+    "Z checks for an update every time it opens, and offers it on its own screen",
+    "The Windows key opens Z's launcher in full screen",
+    "One Z over every display: each display's place is exact",
+    "Main display only: Z stays on display 1 when chosen"
+  ],
+  "he": [
+    "בדיקת עדכון בכל פתיחה של Z, עם מסך עדכון של Z",
+    "מקש Windows פותח את המשגר של Z במסך מלא",
+    "Z אחת על כל המסכים: המיקום של כל מסך מדויק",
+    "מסך ראשי בלבד: Z נשארת על מסך 1 כשזו הבחירה"
+  ],
+  "es": [
+    "Z busca actualizaciones cada vez que se abre y las ofrece en su propia pantalla",
+    "La tecla Windows abre el lanzador de Z en pantalla completa",
+    "Un solo Z en todas las pantallas: la posición de cada pantalla es exacta",
+    "Solo pantalla principal: Z se queda en la pantalla 1 si se elige"
+  ],
+  "ar": [
+    "يبحث Z عن تحديث في كل مرة يُفتح فيها ويعرضه في شاشته الخاصة",
+    "مفتاح Windows يفتح مشغّل Z في وضع ملء الشاشة",
+    "Z واحد على كل الشاشات: موضع كل شاشة دقيق",
+    "الشاشة الرئيسية فقط: يبقى Z على الشاشة 1 عند اختيار ذلك"
+  ],
+  "ru": [
+    "Z проверяет обновления при каждом запуске и предлагает их на своём экране",
+    "Клавиша Windows открывает меню запуска Z в полноэкранном режиме",
+    "Один Z на всех экранах: положение каждого экрана точное",
+    "Только основной экран: Z остаётся на экране 1, если так выбрано"
+  ]
+}

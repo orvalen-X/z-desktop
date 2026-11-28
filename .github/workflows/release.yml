@@ -113,8 +113,17 @@ jobs:
           cat out/SHA256SUMS-*.txt > out/SHA256SUMS.txt
           rm out/SHA256SUMS-*.txt
           ls -l out
+          # What is new, from notes/<version>.json (npm run check requires it, five languages): English as a list for
+          # the page, and every language as one line in a z-notes block, which the update screen shows in the
+          # person's language (O 28.11).
+          node -e '
+            const n = JSON.parse(require("fs").readFileSync(`notes/${process.argv[1]}.json`, "utf8"));
+            console.log(["What is new:", ...n.en.map((l) => `- ${l}`), "", "```z-notes", JSON.stringify(n), "```"].join("\n"));
+          ' "$version" > whatsnew.md
           {
             echo "Z for desktop ${version}"
+            echo
+            cat whatsnew.md
             echo
             echo "Unsigned build: the first launch shows a warning. See the README for how to open it."
             echo
