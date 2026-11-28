@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const cfg = require('./config');
 const i18n = require('./i18n');
 const { createPermissions } = require('./permissions');
-const { createUpdates, releaseNotes, RELEASES_API } = require('./updates');
+const { createUpdates, releaseNotes, withTimeout, LAUNCH_CHECK_MS, RELEASES_API } = require('./updates');
 const { createAutostart, autostartFromArgs, AUTOSTART_ARG } = require('./autostart');
 const { createDisplays } = require('./displays');
 const { createSurfaces } = require('./surfaces');
@@ -18,7 +18,7 @@ const { createWindowMove } = require('./windowMove');
 const { createWindowLive } = require('./windowLive');
 const { createSpan } = require('./span');
 const { randomBytes } = require('node:crypto');
-const { createNavigationGuard } = require('./navGuard');
+const { createNavigationGuard, isPageFile } = require('./navGuard');
 const { createWinKeys, isLeaveFullscreen } = require('./winKeys');
 const pkg = require('../package.json');
 
@@ -36,7 +36,7 @@ const TITLEBAR_FILE = path.join(__dirname, 'titlebar.html');
 const BOOT_FILE = path.join(__dirname, 'boot.html');
 // The update screen at start (O 28.11, sketch B): shown before Z loads when a newer version is ready.
 const UPDATE_FILE = path.join(__dirname, 'update.html');
-const UPDATE_URL = pathToFileURL(UPDATE_FILE).href;
+const onUpdatePage = () => !!zView && !zView.webContents.isDestroyed() && isPageFile(zView.webContents.getURL(), UPDATE_FILE);
 // "Update and open" pressed and the download stops moving for this long: Z opens instead (next start offers again).
 const UPDATE_STALL_MS = 90 * 1000;
 // Height of the window bar shown when Z leaves full screen (sketch 3). In full screen it is 0.
@@ -216,7 +216,7 @@ function guardContents(wc) {
     offlineUrl: OFFLINE_URL,
     openOutside,
     explainGoogle,
-    updateUrl: UPDATE_URL,
+    updateFile: UPDATE_FILE,
     onUpdateAction: (what) => (zView && wc === zView.webContents ? onUpdateScreen(what) : undefined),
   });
   wc.on('will-navigate', onNavigate);
@@ -365,7 +365,8 @@ async function startZ() {
   }
   // The Z logo of the boot screen while the check runs (a few hundred milliseconds, at most a few seconds).
   zView.webContents.loadFile(BOOT_FILE);
-  const [found, rel] = await Promise.all([updates.launchCheck(), fetchLatestRelease().catch(() => null)]);
+  // Both answers within LAUNCH_CHECK_MS: a slow or half-open network never holds Z's start (no title/notes then).
+  const [found, rel] = await Promise.all([updates.launchCheck(), withTimeout(fetchLatestRelease().catch(() => null), LAUNCH_CHECK_MS)]);
   if (!zView || zView.webContents.isDestroyed()) return;
   if (!found) return loadZ();
   // The screen is the offer now: no system box about the same update on top of it (the download goes on).
@@ -398,7 +399,7 @@ async function startZ() {
 
 // A button on the update screen: "update" (install now, Z restarts by itself) or "later" (Z opens; asked again next start).
 function onUpdateScreen(what) {
-  if (!zView || zView.webContents.isDestroyed() || zView.webContents.getURL().split('?')[0] !== UPDATE_URL) return;
+  if (!onUpdatePage()) return;
   if (what === 'later') {
     updates.defer();
     loadZ();
@@ -413,7 +414,7 @@ function onUpdateScreen(what) {
   const report = (pct) => {
     clearTimeout(updateStall);
     updateStall = setTimeout(giveUp, UPDATE_STALL_MS);
-    if (zView && !zView.webContents.isDestroyed() && zView.webContents.getURL().split('?')[0] === UPDATE_URL) {
+    if (onUpdatePage()) {
       zView.webContents.executeJavaScript(`window.zu && window.zu.progress(${Number(pct) || 0})`, true).catch(() => {});
     }
   };

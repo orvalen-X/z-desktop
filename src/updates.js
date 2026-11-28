@@ -52,7 +52,7 @@ function releaseNotes(body) {
     const line = m[1]
       .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
       .replace(/[*_`~#>]/g, '')
-      .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
+      .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 140)
@@ -61,6 +61,14 @@ function releaseNotes(body) {
     if (out.length === 8) break;
   }
   return out;
+}
+
+// p, or null when it has not settled within ms (the timer never keeps anything waiting after).
+function withTimeout(p, ms) {
+  let timer;
+  return Promise.race([Promise.resolve(p), new Promise((resolve) => (timer = setTimeout(() => resolve(null), ms)))]).finally(() =>
+    clearTimeout(timer),
+  );
 }
 
 function updateMode({ platform, isPackaged, appImage }) {
@@ -241,4 +249,4 @@ function createUpdates({ app, version, platform, env, fetchLatest, openExternal,
   };
 }
 
-module.exports = { createUpdates, isNewer, parseVersion, releaseNotes, safeReleaseUrl, updateMode, LAUNCH_CHECK_MS, RELEASES_API, RELEASES_PAGE };
+module.exports = { createUpdates, isNewer, parseVersion, releaseNotes, withTimeout, safeReleaseUrl, updateMode, LAUNCH_CHECK_MS, RELEASES_API, RELEASES_PAGE };

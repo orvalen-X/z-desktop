@@ -1007,15 +1007,26 @@ test('navigation: the top stays on Z, frames inside Z follow their own redirects
 
 // ---------- the update screen at start (O 28.11) ----------
 test('update screen: only its own page and two words act; everything about it is stopped', () => {
-  const { createNavigationGuard, updateAction } = require('../src/navGuard.js');
-  const U = 'file:///z/update.html';
-  assert.equal(updateAction(U + '?do=update', U), 'update');
-  assert.equal(updateAction(U + '?do=later', U), 'later');
-  assert.equal(updateAction(U + '?do=rm', U), '');
-  assert.equal(updateAction('file:///z/other.html?do=update', U), null);
-  assert.equal(updateAction('https://orvalen.me/?do=update', U), null);
+  const { createNavigationGuard, updateAction, isPageFile } = require('../src/navGuard.js');
+  const { pathToFileURL } = require('node:url');
+  const F = '/z/update.html';
+  const U = pathToFileURL(F).href;
+  assert.equal(updateAction(U + '?do=update', F), 'update');
+  assert.equal(updateAction(U + '?do=later', F), 'later');
+  assert.equal(updateAction(U + '?do=rm', F), '');
+  assert.equal(updateAction('file:///z/other.html?do=update', F), null);
+  assert.equal(updateAction('https://orvalen.me/?do=update', F), null);
+  // a Hebrew user name with a space, spelled the way Chromium does (upper %-hex) or not: the same file (Closure-old S1)
+  const H = '/home/משה כהן/Z/update.html';
+  const hu = pathToFileURL(H).href;
+  assert.equal(updateAction(hu + '?do=later', H), 'later');
+  assert.equal(updateAction(hu.replace(/%[0-9A-F]{2}/g, (m) => m.toLowerCase()) + '?do=update', H), 'update');
+  assert.equal(updateAction('file:///home/' + encodeURIComponent('משה כהן') + '/Z/update.html?do=update', H), 'update');
+  // Windows: drive letter and case do not matter
+  assert.ok(isPageFile('file:///C:/Users/x/Z/update.html', 'C:\\Users\\X\\z\\update.html', 'win32') || process.platform !== 'win32');
+  assert.ok(!isPageFile('file:///z/update.html.evil', F) && !isPageFile('https://orvalen.me/z/update.html', F) && !isPageFile(null, F));
   const acts = [], opened = [];
-  const guard = createNavigationGuard({ cfg, offlineUrl: 'file:///z/offline.html', openOutside: (u) => opened.push(u), explainGoogle() {}, updateUrl: U, onUpdateAction: (w) => acts.push(w) });
+  const guard = createNavigationGuard({ cfg, offlineUrl: 'file:///z/offline.html', openOutside: (u) => opened.push(u), explainGoogle() {}, updateFile: F, onUpdateAction: (w) => acts.push(w) });
   const ev = () => ({ isMainFrame: true, stopped: false, preventDefault() { this.stopped = true; } });
   for (const u of [U + '?do=update', U + '?do=later', U + '?do=x', U]) { const e = ev(); guard(e, u); assert.ok(e.stopped, u); }
   assert.deepEqual(acts, ['update', 'later']);
@@ -1034,10 +1045,18 @@ test('update screen: launch check finds a newer version, gives up quietly otherw
   const base = { version: '0.4.3', platform: 'win32', env: {}, fetchLatest: async () => null, openExternal() {}, ask: async () => 1, prefs: {}, savePrefs() {}, strings: () => ({}), log() {} };
   const off = createUpdates({ ...base, app: { isPackaged: false } });
   assert.equal(await off.launchCheck(50), null);
+  // a release fetch that never answers does not hold the start (Closure-old M1, Audit-2 F1)
+  const { withTimeout } = require('../src/updates.js');
+  const t0 = Date.now();
+  assert.equal(await withTimeout(new Promise(() => {}), 80), null);
+  assert.ok(Date.now() - t0 < 1000);
+  assert.equal(await withTimeout(Promise.resolve(7), 80), 7);
   const main = readFileSyncSafe('src/main.js');
   assert.ok(/startZ\(\);\n\}/.test(main), 'createWindow starts with the check');
   assert.ok(/updates\.mode !== 'install' \|\| !net\.isOnline\(\)/.test(main), 'no network or no install mode: Z as before');
   assert.ok(/if \(!found\) return loadZ\(\);/.test(main));
+  assert.ok(/withTimeout\(fetchLatestRelease\(\)\.catch\(\(\) => null\), LAUNCH_CHECK_MS\)/.test(main), 'release fetch capped');
+  assert.ok(!/UPDATE_URL/.test(main), 'the update page is compared as a file path');
   assert.ok(/storages: \['cachestorage'\]/.test(main) && !/storages: \[[^\]]*serviceworkers/.test(main), 'after an app update: page caches only, never the worker (push)');
   assert.ok(/async function startZ\(\) \{\n  await freshAfterAppUpdate\(\);/.test(main));
   assert.ok(/UPDATE_STALL_MS/.test(main) && /updates\.defer\(\);\n\s+loadZ\(\);/.test(main), 'stalled or later: Z opens');
