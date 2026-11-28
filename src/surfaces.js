@@ -19,8 +19,12 @@ const NAME_PREFIX = 'zsurface-';
 const NAME_TTL_MS = 10000;
 const NAME_RE = /^zsurface-[0-9a-f]{32}$/;
 
-function createSurfaces({ screen, randomBytes, now, isMac, isWin, prefs, savePrefs }) {
+function createSurfaces({ screen, randomBytes, now, isMac, isWin, prefs, savePrefs, later }) {
   const clock = now || Date.now;
+  // One turn later: on Windows Electron sends enter-full-screen and leave-full-screen BEFORE the window changes
+  // (NativeWindowViews::SetFullScreen notifies first, then calls widget()->SetFullscreen in the same call), so work
+  // that needs the changed window runs right after that call, not inside the event (same as winKeys.js).
+  const afterChange = later || ((f) => setTimeout(f, 0));
   const pending = new Map(); // name -> { displayId, at }
   const opening = new Map(); // name -> displayId, between the open handler and did-create-window
   const open = new Map(); // displayId -> window
@@ -219,12 +223,17 @@ function createSurfaces({ screen, randomBytes, now, isMac, isWin, prefs, savePre
     moving = true;
     fade(0);
     if (win.isFullScreen()) {
-      win.once('leave-full-screen', () => {
-        place();
-        if (win.isDestroyed()) return finish();
-        win.once('enter-full-screen', finish);
-        win.setFullScreen(true);
-      });
+      // Placed only once the window has really left full screen: inside the event (Windows) the system still restores
+      // the old bounds after it, so Z went back full screen on the display it came from while the choice was saved
+      // (O 28.11: "Main display only", Display 1 chosen, Z opens on Display 2).
+      win.once('leave-full-screen', () =>
+        afterChange(() => {
+          if (win.isDestroyed()) return finish();
+          place();
+          win.once('enter-full-screen', () => afterChange(finish));
+          win.setFullScreen(true);
+        }),
+      );
       // Whatever the system does, the window never stays invisible.
       setTimeout(finish, 2000);
       win.setFullScreen(false);
