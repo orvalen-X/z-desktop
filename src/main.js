@@ -506,7 +506,13 @@ function barColors() {
 // Full screen: Z fills everything. Outside it: the window bar on top and Z below, never on top of each other.
 function layout() {
   if (!win || win.isDestroyed() || !zView) return;
-  const { width, height } = win.getContentBounds();
+  // Span mode: the window's size is the one Z gave it (span.bounds, frameless), never what Windows reports on the way:
+  // minimized (the taskbar icon) it reports a tiny window off screen, and while it crosses displays a passing size.
+  // Laid out from those, the page shrank to nothing or to one display and stayed so (O 28.11: a grey Z after F11 or the
+  // taskbar icon). Minimized there is nothing to place; 'restore' places it again (fitSpan).
+  if (span && span.active() && win.isMinimized()) return;
+  const own = span && span.active() ? span.bounds() : null;
+  const { width, height } = own || win.getContentBounds();
   // Span mode out of full screen: the bar sits over the top of the primary display only, and Z's page (which covers
   // every display) keeps that strip free itself (api 8: span.bar).
   const spanBar = span && span.active() ? span.barRect(BAR_HEIGHT) : null;
@@ -543,6 +549,7 @@ function viewOrigin() {
   }
 }
 function sendSpanOrigin() {
+  if (win.isMinimized()) return;
   const o = viewOrigin();
   if (!o || (spanOrigin && spanOrigin.x === o.x && spanOrigin.y === o.y)) return;
   spanOrigin = o;
@@ -567,6 +574,9 @@ function setFullscreen(on) {
       tellZ();
       liftSpan();
       winKeys.changed();
+      // Out of full screen Z is no longer above everything, but it stays in front: on Windows, leaving the top level
+      // dropped it behind the other windows (O 28.11: F11 looked like it minimized Z).
+      if (!on && win.isFocused()) win.moveTop();
     }
     return on;
   }
@@ -909,7 +919,11 @@ function createWindow() {
   setTimeout(show, 3000);
 
   win.on('resize', layout);
-  if (spanning) win.on('move', layout);
+  if (spanning) {
+    win.on('move', layout);
+    // back from the taskbar: the window and the page get Z's own size again (layout skips a minimized window)
+    win.on('restore', fitSpan);
+  }
   win.on('enter-full-screen', () => {
     winFull = true;
     layout();
