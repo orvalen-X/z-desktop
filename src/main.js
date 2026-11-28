@@ -511,12 +511,35 @@ function layout() {
     const box = spanBooting ? span.mainBox(BAR_HEIGHT) : null;
     zView.setBounds(box || { x: 0, y: 0, width, height });
     placeBootViews(box ? span.bootRects() : []);
+    sendSpanOrigin();
     return;
   }
   const bar = isFullscreen() ? 0 : BAR_HEIGHT;
   barView.setVisible(bar > 0);
   barView.setBounds({ x: 0, y: 0, width, height: bar });
   zView.setBounds({ x: 0, y: bar, width, height: Math.max(0, height - bar) });
+}
+
+// Span mode: where Z's page starts on the system's desk (DIP), from the window's content and the page's own view. Z
+// places every display on its page from this (api 10: span.origin), not from window.screenX, which is the window's
+// outer corner and can differ from where the page really starts (O 28.11: a strip of the other display at the seam).
+let spanOrigin = null;
+function viewOrigin() {
+  if (!win || win.isDestroyed() || !zView) return null;
+  try {
+    const c = win.getContentBounds();
+    const v = zView.getBounds();
+    const o = { x: Math.round(c.x + v.x), y: Math.round(c.y + v.y) };
+    return Number.isFinite(o.x) && Number.isFinite(o.y) ? o : null;
+  } catch {
+    return null;
+  }
+}
+function sendSpanOrigin() {
+  const o = viewOrigin();
+  if (!o || (spanOrigin && spanOrigin.x === o.x && spanOrigin.y === o.y)) return;
+  spanOrigin = o;
+  if (!zView.webContents.isDestroyed()) zView.webContents.send('zd:span:origin', o);
 }
 
 function tellZ() {
@@ -753,6 +776,8 @@ function listenToZ() {
   ipcMain.handle('zd:span:set', (e, on) => (fromMainZ(e) && span && typeof on === 'boolean' ? span.set(on) : NO_SPAN));
   // Z's page: its boot screen is gone, so it may cover every display now (span mode; a no-op otherwise)
   ipcMain.handle('zd:span:ready', (e) => (fromMainZ(e) && span && span.active() ? spanBootEnd() : false));
+  // api 10: where Z's own page starts on the desk in span mode (null otherwise); changes come as zd:span:origin
+  ipcMain.handle('zd:span:origin', (e) => (fromMainZ(e) && span && span.active() ? viewOrigin() : null));
   // Extend: a one-time window name for one display (Z then calls window.open('', name)).
   ipcMain.handle('zd:displays:surface', (e, id) =>
     fromMainZ(e) && surfaces && (typeof id === 'string' || typeof id === 'number') ? surfaces.prepare(String(id)) : null,
@@ -871,6 +896,7 @@ function createWindow() {
   setTimeout(show, 3000);
 
   win.on('resize', layout);
+  if (spanning) win.on('move', layout);
   win.on('enter-full-screen', () => {
     layout();
     tellZ();
