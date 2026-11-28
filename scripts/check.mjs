@@ -306,6 +306,12 @@ test('span: Z learns where its page really starts from the window and its view, 
   assert.ok(/placeBootViews\(box \? span\.bootRects\(\) : \[\]\);\n    sendSpanOrigin\(\);/.test(src), 'sent on every span layout (boot box, then every display)');
   assert.ok(src.includes("ipcMain.handle('zd:span:origin', (e) => (fromMainZ(e) && span && span.active() ? viewOrigin() : null));"), "Z's own window only, span mode only");
   assert.ok(src.includes("if (spanning) win.on('move', layout);"));
+  // The origin is in DIP; Z reads it as page px, which agree only while Z's page zoom stays 1 (Closure-old C1 on z#612).
+  // Nothing in the app changes a page's zoom: no zoom calls, no zoom menu roles, no zoom-changed handler.
+  for (const f of require('node:fs').readdirSync('src').filter((n) => n.endsWith('.js'))) {
+    const code = readFileSyncSafe(`src/${f}`);
+    assert.ok(!/setZoomFactor|setZoomLevel|zoom-changed|role: '(zoomIn|zoomOut|resetZoom)'/.test(code), `${f}: no page zoom`);
+  }
 });
 test('main checks every Z request comes from Z itself', () => {
   const src = readFileSyncSafe('src/main.js');
